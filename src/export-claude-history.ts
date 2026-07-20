@@ -132,12 +132,23 @@ interface DiffLine {
   text: string;
 }
 
+interface ToolCounts {
+  read: number;
+  search: number;
+  bash: number;
+  edit: number;
+  other: number;
+}
+
 interface DiffEntry {
   op: "Write" | "Edit";
   filePath: string;
   added: number;
   removed: number;
   hunk: DiffLine[];
+  // "main" = issued by the main thread; "subagent" = issued inside a
+  // subagent/workflow transcript. Absent is treated as "main" by readers.
+  origin?: "main" | "subagent";
 }
 
 interface PermissionSegment {
@@ -163,11 +174,20 @@ interface Sidecar {
   end: string;
   durationSeconds: number;
   timeZone: string;
+  // Top-level line/tool counts are whole-session totals (main thread +
+  // subagents). `subagent` breaks out the subagent-only portion so the
+  // dashboard can show a main-vs-subagent split (main = total − subagent),
+  // mirroring how cost is split via subagentUsageByModel.
   stats: {
     humanTurns: number;
     linesAdded: number;
     linesRemoved: number;
-    toolCounts: { read: number; search: number; bash: number; edit: number; other: number };
+    toolCounts: ToolCounts;
+    subagent: {
+      linesAdded: number;
+      linesRemoved: number;
+      toolCounts: ToolCounts;
+    };
   };
   timeline: TimelinePoint[];
   permissionSegments: PermissionSegment[];
@@ -669,6 +689,18 @@ function addUsage(acc: Usage, u: Usage): void {
   acc.cr += u.cr;
 }
 
+function emptyToolCounts(): ToolCounts {
+  return { read: 0, search: 0, bash: 0, edit: 0, other: 0 };
+}
+
+function addToolCounts(acc: ToolCounts, t: ToolCounts): void {
+  acc.read += t.read;
+  acc.search += t.search;
+  acc.bash += t.bash;
+  acc.edit += t.edit;
+  acc.other += t.other;
+}
+
 // Sum token usage by model across an arbitrary transcript (used for subagents).
 function sumUsageByModel(lines: string[], acc: Record<string, Usage>): void {
   for (const line of lines) {
@@ -713,7 +745,71 @@ function accumulateSubagentUsage(uuid: string, acc: Record<string, Usage>): void
   walk(subagentsDir);
 }
 
-const TOOL_BUCKETS: Record<string, keyof Sidecar["stats"]["toolCounts"]> = {
+// Scan a transcript for assistant tool_use blocks, tallying tool counts and
+// collecting Write/Edit diffs. Shared shape with the main-thread loop in
+// buildSidecar; used here to harvest subagent transcripts.
+function harvestToolUse(
+  lines: string[],
+  diffs: DiffEntry[],
+  toolCounts: ToolCounts,
+  origin: "main" | "subagent",
+): void {
+  for (const line of lines) {
+    let obj: JsonlLine;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const msg = obj.message;
+    if (obj.type !== "assistant" || !msg || !Array.isArray(msg.content)) continue;
+    for (const b of msg.content) {
+      if (b.type !== "tool_use") continue;
+      const name = b.name || "";
+      toolCounts[TOOL_BUCKETS[name] ?? "other"]++;
+      if (name === "Write" || name === "Edit") {
+        const d = diffFromToolUse(name, b.input, origin);
+        if (d) diffs.push(d);
+      }
+    }
+  }
+}
+
+// Walk a session's subagent + workflow transcripts, harvesting file edits and
+// tool usage so the dashboard can report whole-session (not just main-thread)
+// activity. Mirrors accumulateSubagentUsage, which does the same for tokens.
+function accumulateSubagentActivity(uuid: string): {
+  diffs: DiffEntry[];
+  toolCounts: ToolCounts;
+  linesAdded: number;
+  linesRemoved: number;
+} {
+  const diffs: DiffEntry[] = [];
+  const toolCounts = emptyToolCounts();
+  const subagentsDir = path.join(claudeProjectPath, uuid, "subagents");
+  if (fs.existsSync(subagentsDir)) {
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.name.endsWith(".jsonl")) {
+          try {
+            harvestToolUse(readLines(full), diffs, toolCounts, "subagent");
+          } catch {
+            /* skip unreadable transcript */
+          }
+        }
+      }
+    };
+    walk(subagentsDir);
+  }
+  const linesAdded = diffs.reduce((s, d) => s + d.added, 0);
+  const linesRemoved = diffs.reduce((s, d) => s + d.removed, 0);
+  return { diffs, toolCounts, linesAdded, linesRemoved };
+}
+
+const TOOL_BUCKETS: Record<string, keyof ToolCounts> = {
   Read: "read",
   Glob: "search",
   Grep: "search",
@@ -906,7 +1002,7 @@ function buildSidecar(lines: string[], uuid: string): Sidecar {
             });
           }
           if (name === "Write" || name === "Edit") {
-            const d = diffFromToolUse(name, b.input);
+            const d = diffFromToolUse(name, b.input, "main");
             if (d) diffs.push(d);
           }
           break;
@@ -959,7 +1055,16 @@ function buildSidecar(lines: string[], uuid: string): Sidecar {
     end: lastTs,
     durationSeconds,
     timeZone,
-    stats: { humanTurns, linesAdded, linesRemoved, toolCounts },
+    // Top-level counts start as main-thread only; the caller folds in
+    // subagent activity (see accumulateSubagentActivity) to make them
+    // whole-session totals, alongside subagentUsageByModel for cost.
+    stats: {
+      humanTurns,
+      linesAdded,
+      linesRemoved,
+      toolCounts,
+      subagent: { linesAdded: 0, linesRemoved: 0, toolCounts: emptyToolCounts() },
+    },
     timeline,
     permissionSegments,
     subagents,
@@ -970,7 +1075,11 @@ function buildSidecar(lines: string[], uuid: string): Sidecar {
 }
 
 // Turn a Write/Edit tool_use into a diff entry with a small preview hunk.
-function diffFromToolUse(name: string, input: unknown): DiffEntry | null {
+function diffFromToolUse(
+  name: string,
+  input: unknown,
+  origin: "main" | "subagent",
+): DiffEntry | null {
   if (typeof input !== "object" || input === null) return null;
   const obj = input as Record<string, string | undefined>;
   const filePath = obj["file_path"];
@@ -985,6 +1094,7 @@ function diffFromToolUse(name: string, input: unknown): DiffEntry | null {
       added: lines.length,
       removed: 0,
       hunk: lines.slice(0, 40).map((text) => ({ type: "add" as const, text })),
+      origin,
     };
   }
   // Edit
@@ -994,7 +1104,7 @@ function diffFromToolUse(name: string, input: unknown): DiffEntry | null {
     ...oldLines.slice(0, 30).map((text) => ({ type: "del" as const, text })),
     ...newLines.slice(0, 30).map((text) => ({ type: "add" as const, text })),
   ];
-  return { op: "Edit", filePath, added: newLines.length, removed: oldLines.length, hunk };
+  return { op: "Edit", filePath, added: newLines.length, removed: oldLines.length, hunk, origin };
 }
 
 // --- Main ---
@@ -1070,6 +1180,18 @@ function main() {
     try {
       const sidecar = buildSidecar(lines, uuid);
       accumulateSubagentUsage(uuid, sidecar.subagentUsageByModel);
+      // Fold subagent file edits + tool usage into whole-session totals, and
+      // record the subagent-only portion for the dashboard's main/sub split.
+      const subActivity = accumulateSubagentActivity(uuid);
+      sidecar.diffs.push(...subActivity.diffs);
+      sidecar.stats.linesAdded += subActivity.linesAdded;
+      sidecar.stats.linesRemoved += subActivity.linesRemoved;
+      addToolCounts(sidecar.stats.toolCounts, subActivity.toolCounts);
+      sidecar.stats.subagent = {
+        linesAdded: subActivity.linesAdded,
+        linesRemoved: subActivity.linesRemoved,
+        toolCounts: subActivity.toolCounts,
+      };
       sidecar.setup.project = readSetupDir(path.join(projectRoot, ".claude"));
       sidecar.setup.user = readSetupDir(claudeDir);
       fs.writeFileSync(targetFile.replace(/\.md$/, ".json"), JSON.stringify(sidecar));

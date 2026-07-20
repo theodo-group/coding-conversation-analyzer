@@ -41,6 +41,14 @@ interface DiffEntry {
   added: number;
   removed: number;
   hunk: DiffLine[];
+  origin?: "main" | "subagent";
+}
+interface ToolCounts {
+  read: number;
+  search: number;
+  bash: number;
+  edit: number;
+  other: number;
 }
 interface PermissionSegment {
   mode: string;
@@ -67,7 +75,14 @@ interface Sidecar {
     humanTurns: number;
     linesAdded: number;
     linesRemoved: number;
-    toolCounts: { read: number; search: number; bash: number; edit: number; other: number };
+    toolCounts: ToolCounts;
+    // Subagent-only portion of the whole-session totals above; main = total −
+    // subagent. Optional so older sidecars (pre-split) still render.
+    subagent?: {
+      linesAdded: number;
+      linesRemoved: number;
+      toolCounts: ToolCounts;
+    };
   };
   timeline: TimelinePoint[];
   permissionSegments: PermissionSegment[];
@@ -347,25 +362,36 @@ function heroSection(s: Sidecar): string {
 }
 
 function statTiles(s: Sidecar, cc: CostContext): string {
+  // Whole-session counts (main thread + subagents). `sub` is the subagent-only
+  // portion, shown as a per-tile note so the split is visible without a second
+  // set of tiles.
   const tc = s.stats.toolCounts;
+  const sub = s.stats.subagent;
+  const stc = sub?.toolCounts;
+  const toolNote = (n: number | undefined): string | undefined =>
+    n && n > 0 ? `${n} by subagents` : undefined;
   // Additions/deletions stacked on two lines, GitHub-style green/red.
   const linesChangedHtml =
     `<div class="stat-value stat-diff">` +
     `<span class="add">+${s.stats.linesAdded}</span>` +
     `<span class="del">−${s.stats.linesRemoved}</span></div>`;
+  const linesNote =
+    sub && (sub.linesAdded > 0 || sub.linesRemoved > 0)
+      ? `subagents +${sub.linesAdded}/−${sub.linesRemoved}`
+      : undefined;
   // A tile's value is either escaped plain text or a pre-built HTML fragment
   // (4th tuple slot), used for the two-line diff stat.
   const tiles: Array<[string, string, string?, string?]> = [
     ["Total cost", fmtMoney(cc.totalCost)],
     ["Duration", fmtDuration(s.durationSeconds)],
-    ["Lines changed", "", undefined, linesChangedHtml],
+    ["Lines changed", "", linesNote, linesChangedHtml],
     ["Models", String(cc.models.length), cc.models.map((m) => m.replace(/^claude-/, "")).join(", ")],
     ["Human turns", String(s.stats.humanTurns)],
-    ["Read", String(tc.read)],
-    ["Search", String(tc.search)],
-    ["Bash", String(tc.bash)],
-    ["Edit", String(tc.edit)],
-    ["Other", String(tc.other)],
+    ["Read", String(tc.read), toolNote(stc?.read)],
+    ["Search", String(tc.search), toolNote(stc?.search)],
+    ["Bash", String(tc.bash), toolNote(stc?.bash)],
+    ["Edit", String(tc.edit), toolNote(stc?.edit)],
+    ["Other", String(tc.other), toolNote(stc?.other)],
   ];
   return `<div class="stats">${tiles
     .map(([label, value, note, valueHtml]) => {
@@ -459,9 +485,15 @@ function setupSection(s: Sidecar): string {
 
 function diffSection(s: Sidecar): string {
   if (!s.diffs.length) return "";
-  const entries = s.diffs
+  // Main-thread edits first, then subagent edits — each still tagged inline so
+  // origin is clear regardless of order.
+  const ordered = [...s.diffs].sort(
+    (a, b) => (a.origin === "subagent" ? 1 : 0) - (b.origin === "subagent" ? 1 : 0),
+  );
+  const entries = ordered
     .map((d) => {
       const name = d.filePath.split("/").pop() || d.filePath;
+      const badge = d.origin === "subagent" ? `<span class="origin-badge">subagent</span>` : "";
       const lines = d.hunk
         .map((l) => {
           const cls = l.type === "add" ? "d-add" : l.type === "del" ? "d-del" : "d-ctx";
@@ -470,14 +502,16 @@ function diffSection(s: Sidecar): string {
         })
         .join("\n");
       return `<details class="diff-entry">
-  <summary><span class="op op-${d.op.toLowerCase()}">${d.op}</span><span class="diff-path" title="${attr(d.filePath)}">${escape(name)}</span><span class="diff-stat">+${d.added} / -${d.removed}</span></summary>
+  <summary><span class="op op-${d.op.toLowerCase()}">${d.op}</span><span class="diff-path" title="${attr(d.filePath)}">${escape(name)}</span>${badge}<span class="diff-stat">+${d.added} / -${d.removed}</span></summary>
   <pre class="diff-body">${lines}</pre>
 </details>`;
     })
     .join("\n");
   const ops = s.diffs.length;
+  const subOps = s.diffs.filter((d) => d.origin === "subagent").length;
+  const subNote = subOps ? ` · ${subOps} by subagents` : "";
   return `<section class="panel">
-  <div class="section-head"><span class="eyebrow">Output · File changes</span><h2>Generated diffs <span class="badge">${ops} operations</span></h2></div>
+  <div class="section-head"><span class="eyebrow">Output · File changes</span><h2>Generated diffs <span class="badge">${ops} operations${subNote}</span></h2></div>
   <div class="diff-entries">${entries}</div>
 </section>`;
 }
@@ -605,6 +639,7 @@ body {
 .op-write { background: rgba(63,185,80,0.18); color: #3fb950; }
 .op-edit { background: rgba(210,153,34,0.18); color: #d29922; }
 .diff-path { font-family: var(--mono); font-size: 12px; }
+.origin-badge { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 999px; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.4); color: #58a6ff; }
 .diff-stat { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
 .diff-body { padding: 8px 12px; overflow-x: auto; font-family: var(--mono); font-size: 11px; line-height: 1.5; border-top: 1px solid var(--border); }
 .diff-body span { display: block; white-space: pre; }
