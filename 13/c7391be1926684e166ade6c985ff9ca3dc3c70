@@ -1,0 +1,19 @@
+src/export-claude-history.ts
+  s_3a4f2d118d7ddb::t_0a1ba789a9f8fc 582-585
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "13c7391be1926684e166ade6c985ff9ca3dc3c70",
+  "prompts": {},
+  "sessions": {
+    "s_3a4f2d118d7ddb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5610d318-98a0-4f82-bdc1-f369cad92859",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
