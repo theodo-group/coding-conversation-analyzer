@@ -3,7 +3,8 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { generateDashboardHtml } from "./generate-dashboard.ts";
+import { generateDashboardHtml, summarizeSidecar } from "./generate-dashboard.ts";
+import { generateIndexHtml, type IndexEntry } from "./generate-index.ts";
 
 // --- Types ---
 
@@ -760,16 +761,47 @@ function toggleTurn(n) {
 
 // --- Main ---
 
+interface FileResult {
+  discussionPath: string;
+  dashboardPath: string | null;
+  title: string;
+  metrics: ReturnType<typeof summarizeSidecar> | null;
+}
+
+// First `# ` heading in the markdown, used as an index title when no sidecar
+// (which carries its own `title`) is present. Falls back to the file's name.
+function titleFromMarkdown(mdPath: string): string {
+  try {
+    const text = fs.readFileSync(mdPath, "utf-8");
+    for (const line of text.split("\n")) {
+      const m = line.match(/^# (.+)$/);
+      if (m) return m[1]!.trim();
+    }
+  } catch {
+    /* fall through to filename */
+  }
+  return path.basename(mdPath).replace(/\.[^.]+$/, "");
+}
+
 // Renders the discussion viewer to `<base>-discussion.html`, and — when a
 // sidecar `<name>.json` sits next to the source markdown (written by
 // cca-export) — also renders the dashboard report to `<base>-dashboard.html`.
 // `outputPath` is the base `.html` path; the two suffixes are derived from it.
-function convertFile(inputPath: string, outputPath: string): void {
+// Returns the paths, title and headline metrics so the caller can build an
+// index across many conversions.
+function convertFile(inputPath: string, outputPath: string): FileResult {
   const discussionPath = outputPath.replace(/\.html$/i, "-discussion.html");
   const htmlContent = generateHtml(inputPath);
   fs.mkdirSync(path.dirname(discussionPath), { recursive: true });
   fs.writeFileSync(discussionPath, htmlContent, "utf-8");
   console.log(`Generated: ${path.resolve(discussionPath)}`);
+
+  const result: FileResult = {
+    discussionPath,
+    dashboardPath: null,
+    title: titleFromMarkdown(inputPath),
+    metrics: null,
+  };
 
   const sidecarPath = inputPath.replace(/\.[^.]+$/, ".json");
   if (fs.existsSync(sidecarPath)) {
@@ -778,10 +810,14 @@ function convertFile(inputPath: string, outputPath: string): void {
       const sidecar = JSON.parse(fs.readFileSync(sidecarPath, "utf-8"));
       fs.writeFileSync(dashboardPath, generateDashboardHtml(sidecar), "utf-8");
       console.log(`Generated: ${path.resolve(dashboardPath)}`);
+      result.dashboardPath = dashboardPath;
+      result.metrics = summarizeSidecar(sidecar);
+      if (result.metrics.title) result.title = result.metrics.title;
     } catch (e) {
       console.error(`  Dashboard error for ${sidecarPath}: ${e}`);
     }
   }
+  return result;
 }
 
 // Recursively collect markdown files under `dir`, relative to it.
@@ -820,11 +856,33 @@ function main() {
     }
 
     const outDir = outArg ?? inputPath;
+    const results: FileResult[] = [];
     for (const rel of mdFiles) {
       const src = path.join(inputPath, rel);
       const dest = path.join(outDir, rel.replace(/\.[^.]+$/, ".html"));
-      convertFile(src, dest);
+      results.push(convertFile(src, dest));
     }
+
+    // An index listing every converted conversation, links + a live grouped
+    // total. Hrefs are relative to the index at the output-directory root.
+    const relHref = (p: string): string =>
+      path.relative(outDir, p).split(path.sep).join("/");
+    const entries: IndexEntry[] = results.map((r) => ({
+      title: r.title,
+      discussionHref: relHref(r.discussionPath),
+      dashboardHref: r.dashboardPath ? relHref(r.dashboardPath) : null,
+      totalCost: r.metrics?.totalCost ?? 0,
+      peakContext: r.metrics?.peakContext ?? 0,
+      durationSeconds: r.metrics?.durationSeconds ?? 0,
+      linesAdded: r.metrics?.linesAdded ?? 0,
+      linesRemoved: r.metrics?.linesRemoved ?? 0,
+      hasMetrics: r.metrics !== null,
+    }));
+    const indexPath = path.join(outDir, "index.html");
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(indexPath, generateIndexHtml(entries), "utf-8");
+    console.log(`Generated: ${path.resolve(indexPath)}`);
+
     console.log(`Converted ${mdFiles.length} file(s).`);
   } else {
     const outputPath = outArg || inputPath.replace(/\.[^.]+$/, ".html");

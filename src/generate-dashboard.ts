@@ -249,6 +249,30 @@ function computeCost(s: Sidecar): CostContext {
   };
 }
 
+// Condensed per-conversation metrics for the multi-discussion index page.
+// Exposes just the headline numbers (cost/context/duration/change) so the
+// index can list many conversations without re-deriving the full dashboard.
+export interface SidecarSummary {
+  title: string;
+  totalCost: number;
+  peakContext: number;
+  durationSeconds: number;
+  linesAdded: number;
+  linesRemoved: number;
+}
+
+export function summarizeSidecar(s: Sidecar): SidecarSummary {
+  const cc = computeCost(s);
+  return {
+    title: (s.title || "").trim(),
+    totalCost: cc.totalCost,
+    peakContext: cc.peakContext,
+    durationSeconds: s.durationSeconds || 0,
+    linesAdded: s.stats?.linesAdded ?? 0,
+    linesRemoved: s.stats?.linesRemoved ?? 0,
+  };
+}
+
 // --- SVG dual chart (cumulative cost + context tokens over time) ---
 
 function costContextChart(s: Sidecar, cc: CostContext): string {
