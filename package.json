@@ -1,0 +1,27 @@
+{
+  "name": "claude-conversation-analyzer",
+  "version": "1.0.0",
+  "description": "Export Claude Code conversations to markdown and view them in an interactive HTML analyzer.",
+  "type": "module",
+  "bin": {
+    "export-claude-history": "src/export-claude-history.ts",
+    "generate-html": "src/generate-html.ts"
+  },
+  "scripts": {
+    "export": "tsx src/export-claude-history.ts",
+    "view": "tsx src/generate-html.ts"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "conversation",
+    "export",
+    "viewer",
+    "analyzer"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
