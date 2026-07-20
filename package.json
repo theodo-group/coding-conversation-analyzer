@@ -4,8 +4,8 @@
   "description": "Export Claude Code conversations to markdown and view them in an interactive HTML analyzer.",
   "type": "module",
   "bin": {
-    "export-claude-history": "src/export-claude-history.ts",
-    "generate-html": "src/generate-html.ts"
+    "cca-export": "src/export-claude-history.ts",
+    "cca-generate-html": "src/generate-html.ts"
   },
   "scripts": {
     "export": "tsx src/export-claude-history.ts",

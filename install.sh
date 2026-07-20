@@ -63,11 +63,14 @@ EOF
   chmod +x "$target"
 }
 
-make_wrapper "export-claude-history" "export-claude-history.ts"
-make_wrapper "generate-html"         "generate-html.ts"
+# Remove wrappers from older installs that used the un-prefixed names.
+rm -f "$BIN_DIR/export-claude-history" "$BIN_DIR/generate-html"
+
+make_wrapper "cca-export"       "export-claude-history.ts"
+make_wrapper "cca-generate-html" "generate-html.ts"
 
 info "Installed commands into $BIN_DIR:"
-printf '    export-claude-history\n    generate-html\n'
+printf '    cca-export\n    cca-generate-html\n'
 
 # --- PATH hint ----------------------------------------------------------------
 case ":$PATH:" in
@@ -79,4 +82,4 @@ case ":$PATH:" in
     ;;
 esac
 
-info "Done. Try:  export-claude-history ./export"
+info "Done. Try:  cca-export ./export"
