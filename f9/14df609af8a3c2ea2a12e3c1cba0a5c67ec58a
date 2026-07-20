@@ -1,0 +1,14 @@
+src/export-claude-history.ts
+  h_9e1923d2b5b2d1 44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "f914df609af8a3c2ea2a12e3c1cba0a5c67ec58a",
+  "prompts": {},
+  "humans": {
+    "h_9e1923d2b5b2d1": {
+      "author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
