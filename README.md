@@ -57,6 +57,14 @@ Exports conversations including tool results, thinking blocks, subagent conversa
 actual Edit diffs, and YAML frontmatter. Incremental — re-running only exports new or
 changed conversations.
 
+By default it reads Claude Code's history from `~/.claude`. Pass `--claude-dir <path>`
+(or `--claude-dir=<path>`, `~` is expanded) to read from a different location — useful
+for a non-standard `CLAUDE_CONFIG_DIR`, a backup, or another machine's history:
+
+```bash
+cca-export <output-dir> --claude-dir /path/to/.claude
+```
+
 Output structure:
 
 ```

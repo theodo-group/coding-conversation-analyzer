@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-// export-claude-history v1.6
+// export-claude-history v1.7
 
 import { execSync } from "child_process";
 import * as fs from "fs";
@@ -15,13 +15,37 @@ function getProjectRoot(): string {
 }
 
 const projectRoot = getProjectRoot();
-const claudeProjectPath = `${process.env["HOME"]}/.claude/projects/${projectRoot.replace(/\//g, "-")}`;
-const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-const fullExport = process.argv.includes("--full");
-const targetDirArg = args[0];
+
+// Parse CLI: positional args, `--full`, and `--claude-dir <path>` (also
+// accepts `--claude-dir=<path>`) to override the default `~/.claude` location.
+const rawArgs = process.argv.slice(2);
+const fullExport = rawArgs.includes("--full");
+const positional: string[] = [];
+let claudeDirArg: string | undefined;
+for (let i = 0; i < rawArgs.length; i++) {
+  const a = rawArgs[i];
+  if (a === undefined) continue;
+  if (a === "--full") continue;
+  if (a === "--claude-dir") {
+    claudeDirArg = rawArgs[++i];
+    continue;
+  }
+  if (a.startsWith("--claude-dir=")) {
+    claudeDirArg = a.slice("--claude-dir=".length);
+    continue;
+  }
+  if (a.startsWith("--")) continue;
+  positional.push(a);
+}
+
+const claudeDir = claudeDirArg
+  ? path.resolve(claudeDirArg.replace(/^~(?=$|\/)/, os.homedir()))
+  : path.join(os.homedir(), ".claude");
+const claudeProjectPath = path.join(claudeDir, "projects", projectRoot.replace(/\//g, "-"));
+const targetDirArg = positional[0];
 
 if (!targetDirArg) {
-  console.error("Usage: export-claude-history <target-dir> [--full]");
+  console.error("Usage: export-claude-history <target-dir> [--full] [--claude-dir <path>]");
   process.exit(1);
 }
 
@@ -1047,7 +1071,7 @@ function main() {
       const sidecar = buildSidecar(lines, uuid);
       accumulateSubagentUsage(uuid, sidecar.subagentUsageByModel);
       sidecar.setup.project = readSetupDir(path.join(projectRoot, ".claude"));
-      sidecar.setup.user = readSetupDir(path.join(process.env["HOME"] || "", ".claude"));
+      sidecar.setup.user = readSetupDir(claudeDir);
       fs.writeFileSync(targetFile.replace(/\.md$/, ".json"), JSON.stringify(sidecar));
     } catch (e) {
       console.error(`    Sidecar error: ${e}`);
