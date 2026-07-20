@@ -15,7 +15,7 @@ function getProjectRoot(): string {
 }
 
 const projectRoot = getProjectRoot();
-const claudeProjectPath = `${process.env["HOME"]}/.claude/projects/${projectRoot.replace(/\//g, "-")}`;
+const claudeProjectPath = `${process.env["HOME"]}/.claude/projects/${projectRoot.replace(/[/_.]/g, "-")}`;
 const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 const fullExport = process.argv.includes("--full");
 const targetDirArg = args[0];
