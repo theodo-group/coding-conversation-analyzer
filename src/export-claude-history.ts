@@ -45,10 +45,116 @@ interface ContentBlock {
 
 interface JsonlLine {
   type?: string;
-  message?: { role?: string; content?: string | ContentBlock[] };
+  message?: {
+    role?: string;
+    content?: string | ContentBlock[];
+    model?: string;
+    usage?: RawUsage;
+  };
   timestamp?: string;
   gitBranch?: string;
+  cwd?: string;
+  version?: string;
+  sessionId?: string;
+  permissionMode?: string;
   toolUseResult?: unknown;
+}
+
+interface RawUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
+
+// --- Sidecar (dashboard data) types ---
+
+// Token usage, normalized to short keys so the sidecar stays compact.
+interface Usage {
+  in: number;
+  out: number;
+  cw: number; // cache creation (write)
+  cr: number; // cache read
+}
+
+// A single event on the message timeline. `t` is seconds from session start.
+interface TimelinePoint {
+  i: number;
+  kind:
+    | "prompt"
+    | "assistant"
+    | "thinking"
+    | "tool_use"
+    | "tool_result"
+    | "notification"
+    | "skill";
+  t: number;
+  model?: string;
+  tool?: string;
+  label?: string; // short text preview (prompts, tool inputs)
+  permissionMode?: string;
+  usage?: Usage; // present on assistant API calls only
+}
+
+interface SubagentSpawn {
+  type: string;
+  description: string;
+  input: string;
+  t: number;
+}
+
+interface DiffLine {
+  type: "add" | "del" | "ctx";
+  text: string;
+}
+
+interface DiffEntry {
+  op: "Write" | "Edit";
+  filePath: string;
+  added: number;
+  removed: number;
+  hunk: DiffLine[];
+}
+
+interface PermissionSegment {
+  mode: string;
+  start: number; // seconds
+  end: number; // seconds
+}
+
+interface SetupItem {
+  kind: "agent" | "skill";
+  name: string;
+  description: string;
+}
+
+interface Sidecar {
+  uuid: string;
+  sessionId: string;
+  cwd: string;
+  branch: string;
+  version: string;
+  title: string;
+  start: string;
+  end: string;
+  durationSeconds: number;
+  timeZone: string;
+  stats: {
+    humanTurns: number;
+    linesAdded: number;
+    linesRemoved: number;
+    toolCounts: { read: number; search: number; bash: number; edit: number; other: number };
+  };
+  timeline: TimelinePoint[];
+  permissionSegments: PermissionSegment[];
+  subagents: SubagentSpawn[];
+  // Aggregated token usage across every subagent/workflow transcript, by model.
+  subagentUsageByModel: Record<string, Usage>;
+  diffs: DiffEntry[];
+  setup: {
+    project: SetupItem[];
+    user: SetupItem[];
+  };
 }
 
 // --- Helpers ---
@@ -492,6 +598,7 @@ function removeExportOutputs(sessionMdPath: string): void {
   const dir = path.dirname(sessionMdPath);
   const base = path.basename(sessionMdPath).replace(/\.(md|txt)$/, "");
   fs.rmSync(sessionMdPath, { force: true });
+  fs.rmSync(path.join(dir, `${base}.json`), { force: true });
   fs.rmSync(path.join(dir, `${base}-subagents`), { recursive: true, force: true });
   fs.rmSync(path.join(dir, `${base}-workflows`), { recursive: true, force: true });
 }
@@ -514,6 +621,356 @@ function exportFile(lines: string[], id: string, targetFile: string): boolean {
   fs.mkdirSync(path.dirname(targetFile), { recursive: true });
   fs.writeFileSync(targetFile, formatHeader(stats) + stats.messages.join("\n"));
   return true;
+}
+
+// --- Sidecar (dashboard data) extraction ---
+
+function emptyUsage(): Usage {
+  return { in: 0, out: 0, cw: 0, cr: 0 };
+}
+
+function normUsage(u: RawUsage | undefined): Usage {
+  return {
+    in: u?.input_tokens ?? 0,
+    out: u?.output_tokens ?? 0,
+    cw: u?.cache_creation_input_tokens ?? 0,
+    cr: u?.cache_read_input_tokens ?? 0,
+  };
+}
+
+function addUsage(acc: Usage, u: Usage): void {
+  acc.in += u.in;
+  acc.out += u.out;
+  acc.cw += u.cw;
+  acc.cr += u.cr;
+}
+
+// Sum token usage by model across an arbitrary transcript (used for subagents).
+function sumUsageByModel(lines: string[], acc: Record<string, Usage>): void {
+  for (const line of lines) {
+    let obj: JsonlLine;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const model = obj.message?.model;
+    const usage = obj.message?.usage;
+    if (obj.type === "assistant" && model && usage) {
+      if (!acc[model]) acc[model] = emptyUsage();
+      addUsage(acc[model]!, normUsage(usage));
+    }
+  }
+}
+
+function splitLines(s: string): string[] {
+  return s.replace(/\n$/, "").split("\n");
+}
+
+// Walk a session's subagent + workflow transcripts, summing token usage by model.
+function accumulateSubagentUsage(uuid: string, acc: Record<string, Usage>): void {
+  const subagentsDir = path.join(claudeProjectPath, uuid, "subagents");
+  if (!fs.existsSync(subagentsDir)) return;
+
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith(".jsonl")) {
+        try {
+          sumUsageByModel(readLines(full), acc);
+        } catch {
+          /* skip unreadable transcript */
+        }
+      }
+    }
+  };
+  walk(subagentsDir);
+}
+
+const TOOL_BUCKETS: Record<string, keyof Sidecar["stats"]["toolCounts"]> = {
+  Read: "read",
+  Glob: "search",
+  Grep: "search",
+  Bash: "bash",
+  Edit: "edit",
+  MultiEdit: "edit",
+  Write: "edit",
+};
+
+// Read Claude agent/skill configuration under a `.claude` dir, for the setup panel.
+function readSetupDir(claudeDir: string): SetupItem[] {
+  const items: SetupItem[] = [];
+  if (!fs.existsSync(claudeDir)) return items;
+
+  const frontmatter = (file: string): { name?: string; description?: string } => {
+    try {
+      const text = fs.readFileSync(file, "utf-8");
+      const m = text.match(/^---\n([\s\S]*?)\n---/);
+      if (!m) return {};
+      const out: { name?: string; description?: string } = {};
+      for (const l of m[1]!.split("\n")) {
+        const i = l.indexOf(":");
+        if (i === -1) continue;
+        const k = l.slice(0, i).trim();
+        const v = l.slice(i + 1).trim().replace(/^["']|["']$/g, "");
+        if (k === "name") out.name = v;
+        if (k === "description") out.description = v;
+      }
+      return out;
+    } catch {
+      return {};
+    }
+  };
+
+  const agentsDir = path.join(claudeDir, "agents");
+  if (fs.existsSync(agentsDir)) {
+    for (const f of fs.readdirSync(agentsDir).filter((f) => f.endsWith(".md")).sort()) {
+      const fm = frontmatter(path.join(agentsDir, f));
+      items.push({ kind: "agent", name: fm.name || f.replace(/\.md$/, ""), description: fm.description || "" });
+    }
+  }
+
+  const skillsDir = path.join(claudeDir, "skills");
+  if (fs.existsSync(skillsDir)) {
+    for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const skillFile = entry.isDirectory()
+        ? path.join(skillsDir, entry.name, "SKILL.md")
+        : entry.name.endsWith(".md")
+          ? path.join(skillsDir, entry.name)
+          : "";
+      if (!skillFile || !fs.existsSync(skillFile)) continue;
+      const fm = frontmatter(skillFile);
+      items.push({ kind: "skill", name: fm.name || entry.name.replace(/\.md$/, ""), description: fm.description || "" });
+    }
+  }
+
+  return items;
+}
+
+// Map a Claude Code permission-mode value to a short human label + icon.
+const MODE_LABELS: Record<string, string> = {
+  default: "⌨️ Normal",
+  acceptEdits: "⚡ Auto-accept",
+  plan: "📝 Plan",
+  bypassPermissions: "⏭️ Bypass",
+};
+
+// Single pass over the main transcript to produce the dashboard sidecar
+// (minus subagent usage + setup, which the caller fills in).
+function buildSidecar(lines: string[], uuid: string): Sidecar {
+  const timeline: TimelinePoint[] = [];
+  const subagents: SubagentSpawn[] = [];
+  const diffs: DiffEntry[] = [];
+  const toolCounts = { read: 0, search: 0, bash: 0, edit: 0, other: 0 };
+  const modeTransitions: Array<{ t: number; mode: string }> = [];
+
+  let firstTs = "";
+  let lastTs = "";
+  let cwd = "";
+  let version = "";
+  let sessionId = "";
+  let branch = "";
+  let title = "";
+  let humanTurns = 0;
+  const branchCounts: Record<string, number> = {};
+  const pendingTools = new Map<string, string>();
+
+  const toSec = (ts: string): number =>
+    firstTs ? (new Date(ts).getTime() - new Date(firstTs).getTime()) / 1000 : 0;
+
+  let i = 0;
+  for (const line of lines) {
+    let obj: JsonlLine;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    if (obj.timestamp) {
+      if (!firstTs) firstTs = obj.timestamp;
+      lastTs = obj.timestamp;
+    }
+    if (obj.cwd) cwd = obj.cwd;
+    if (obj.version) version = obj.version;
+    if (obj.sessionId) sessionId = obj.sessionId;
+    if (obj.gitBranch) branchCounts[obj.gitBranch] = (branchCounts[obj.gitBranch] || 0) + 1;
+    if (obj.permissionMode && obj.timestamp) {
+      const t = toSec(obj.timestamp);
+      const prev = modeTransitions[modeTransitions.length - 1];
+      if (!prev || prev.mode !== obj.permissionMode) modeTransitions.push({ t, mode: obj.permissionMode });
+    }
+
+    if (SKIP_TYPES.has(obj.type || "")) continue;
+    const msg = obj.message;
+    if (!msg?.role) continue;
+    const t = obj.timestamp ? toSec(obj.timestamp) : 0;
+
+    if (typeof msg.content === "string") {
+      const c = msg.content.trim();
+      if (!c) continue;
+      if (c.startsWith("<task-notification>")) {
+        timeline.push({ i: i++, kind: "notification", t });
+      } else if (
+        c.startsWith("<command-message>") ||
+        c.startsWith("<command-name>") ||
+        c.startsWith("<local-command-caveat>") ||
+        c.startsWith("Base directory for this skill:")
+      ) {
+        // Local-command noise (/clear, /compact, skill invocations) — not a human turn.
+        timeline.push({ i: i++, kind: "skill", t });
+      } else {
+        humanTurns++;
+        if (!title) title = c;
+        timeline.push({ i: i++, kind: "prompt", t, label: truncate(c, 400) });
+      }
+      continue;
+    }
+    if (!Array.isArray(msg.content)) continue;
+
+    const model = msg.model;
+    const pm = obj.permissionMode;
+    let usageAttached = false;
+
+    for (const b of msg.content) {
+      switch (b.type) {
+        case "thinking":
+          if (b.thinking) timeline.push({ i: i++, kind: "thinking", t, ...(model ? { model } : {}) });
+          break;
+        case "text":
+          if (b.text?.trim()) {
+            if (msg.role === "assistant") {
+              const point: TimelinePoint = { i: i++, kind: "assistant", t };
+              if (model) point.model = model;
+              if (pm) point.permissionMode = pm;
+              if (!usageAttached && msg.usage) {
+                point.usage = normUsage(msg.usage);
+                usageAttached = true;
+              }
+              timeline.push(point);
+            } else if (b.text.trimStart().startsWith("Base directory for this skill:")) {
+              timeline.push({ i: i++, kind: "skill", t });
+            } else {
+              humanTurns++;
+              const txt = b.text.trim();
+              if (!title) title = txt;
+              timeline.push({ i: i++, kind: "prompt", t, label: truncate(txt, 400) });
+            }
+          }
+          break;
+        case "tool_use": {
+          const name = b.name || "";
+          if (b.id) pendingTools.set(b.id, name);
+          toolCounts[TOOL_BUCKETS[name] ?? "other"]++;
+          const point: TimelinePoint = { i: i++, kind: "tool_use", t, tool: name };
+          if (model) point.model = model;
+          if (!usageAttached && msg.usage) {
+            point.usage = normUsage(msg.usage);
+            usageAttached = true;
+          }
+          timeline.push(point);
+
+          if ((name === "Agent" || name === "Task") && b.input && typeof b.input === "object") {
+            const inp = b.input as Record<string, unknown>;
+            subagents.push({
+              type: String(inp["subagent_type"] ?? inp["agentType"] ?? "agent"),
+              description: String(inp["description"] ?? ""),
+              input: truncate(String(inp["prompt"] ?? ""), 600),
+              t,
+            });
+          }
+          if (name === "Write" || name === "Edit") {
+            const d = diffFromToolUse(name, b.input);
+            if (d) diffs.push(d);
+          }
+          break;
+        }
+        case "tool_result":
+          if (b.tool_use_id) pendingTools.delete(b.tool_use_id);
+          timeline.push({ i: i++, kind: "tool_result", t });
+          break;
+      }
+    }
+  }
+
+  branch = Object.entries(branchCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "unknown";
+  const durationSeconds = firstTs && lastTs ? (new Date(lastTs).getTime() - new Date(firstTs).getTime()) / 1000 : 0;
+
+  // Build permission-mode segments spanning [start, end]. Assume `default`
+  // until the first observed transition.
+  const permissionSegments: PermissionSegment[] = [];
+  const transitions = modeTransitions.length && modeTransitions[0]!.t > 0
+    ? [{ t: 0, mode: "default" }, ...modeTransitions]
+    : modeTransitions.length
+      ? modeTransitions
+      : [{ t: 0, mode: "default" }];
+  for (let k = 0; k < transitions.length; k++) {
+    permissionSegments.push({
+      mode: transitions[k]!.mode,
+      start: transitions[k]!.t,
+      end: k + 1 < transitions.length ? transitions[k + 1]!.t : durationSeconds,
+    });
+  }
+
+  const linesAdded = diffs.reduce((s, d) => s + d.added, 0);
+  const linesRemoved = diffs.reduce((s, d) => s + d.removed, 0);
+
+  let timeZone = "UTC";
+  try {
+    timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    /* keep UTC */
+  }
+
+  return {
+    uuid,
+    sessionId: sessionId || uuid,
+    cwd,
+    branch,
+    version,
+    title,
+    start: firstTs,
+    end: lastTs,
+    durationSeconds,
+    timeZone,
+    stats: { humanTurns, linesAdded, linesRemoved, toolCounts },
+    timeline,
+    permissionSegments,
+    subagents,
+    subagentUsageByModel: {},
+    diffs,
+    setup: { project: [], user: [] },
+  };
+}
+
+// Turn a Write/Edit tool_use into a diff entry with a small preview hunk.
+function diffFromToolUse(name: string, input: unknown): DiffEntry | null {
+  if (typeof input !== "object" || input === null) return null;
+  const obj = input as Record<string, string | undefined>;
+  const filePath = obj["file_path"];
+  if (!filePath) return null;
+
+  if (name === "Write") {
+    const content = obj["content"] || "";
+    const lines = content ? splitLines(content) : [];
+    return {
+      op: "Write",
+      filePath,
+      added: lines.length,
+      removed: 0,
+      hunk: lines.slice(0, 40).map((text) => ({ type: "add" as const, text })),
+    };
+  }
+  // Edit
+  const oldLines = obj["old_string"] ? splitLines(obj["old_string"]) : [];
+  const newLines = obj["new_string"] ? splitLines(obj["new_string"]) : [];
+  const hunk: DiffLine[] = [
+    ...oldLines.slice(0, 30).map((text) => ({ type: "del" as const, text })),
+    ...newLines.slice(0, 30).map((text) => ({ type: "add" as const, text })),
+  ];
+  return { op: "Edit", filePath, added: newLines.length, removed: oldLines.length, hunk };
 }
 
 // --- Main ---
@@ -583,6 +1040,18 @@ function main() {
     fs.writeFileSync(targetFile, formatHeader(stats) + stats.messages.join("\n"));
     // Print the absolute path so terminals render it as a clickable link.
     console.log(`  Exported: ${targetFile}`);
+
+    // Sidecar JSON (structured metrics for the dashboard view). Sits next to the
+    // .md so `cca-generate-html` can render both a -discussion and a -dashboard page.
+    try {
+      const sidecar = buildSidecar(lines, uuid);
+      accumulateSubagentUsage(uuid, sidecar.subagentUsageByModel);
+      sidecar.setup.project = readSetupDir(path.join(projectRoot, ".claude"));
+      sidecar.setup.user = readSetupDir(path.join(process.env["HOME"] || "", ".claude"));
+      fs.writeFileSync(targetFile.replace(/\.md$/, ".json"), JSON.stringify(sidecar));
+    } catch (e) {
+      console.error(`    Sidecar error: ${e}`);
+    }
 
     // Export subagents
     const subagentsDir = path.join(claudeProjectPath, uuid, "subagents");
