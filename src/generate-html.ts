@@ -3,6 +3,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { generateDashboardHtml } from "./generate-dashboard.ts";
 
 // --- Types ---
 
@@ -759,11 +760,28 @@ function toggleTurn(n) {
 
 // --- Main ---
 
+// Renders the discussion viewer to `<base>-discussion.html`, and — when a
+// sidecar `<name>.json` sits next to the source markdown (written by
+// cca-export) — also renders the dashboard report to `<base>-dashboard.html`.
+// `outputPath` is the base `.html` path; the two suffixes are derived from it.
 function convertFile(inputPath: string, outputPath: string): void {
+  const discussionPath = outputPath.replace(/\.html$/i, "-discussion.html");
   const htmlContent = generateHtml(inputPath);
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, htmlContent, "utf-8");
-  console.log(`Generated: ${outputPath}`);
+  fs.mkdirSync(path.dirname(discussionPath), { recursive: true });
+  fs.writeFileSync(discussionPath, htmlContent, "utf-8");
+  console.log(`Generated: ${path.resolve(discussionPath)}`);
+
+  const sidecarPath = inputPath.replace(/\.[^.]+$/, ".json");
+  if (fs.existsSync(sidecarPath)) {
+    const dashboardPath = outputPath.replace(/\.html$/i, "-dashboard.html");
+    try {
+      const sidecar = JSON.parse(fs.readFileSync(sidecarPath, "utf-8"));
+      fs.writeFileSync(dashboardPath, generateDashboardHtml(sidecar), "utf-8");
+      console.log(`Generated: ${path.resolve(dashboardPath)}`);
+    } catch (e) {
+      console.error(`  Dashboard error for ${sidecarPath}: ${e}`);
+    }
+  }
 }
 
 // Recursively collect markdown files under `dir`, relative to it.
