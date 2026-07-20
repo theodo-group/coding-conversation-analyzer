@@ -12,17 +12,41 @@ Both are self-contained scripts using only Node built-ins.
 
 ## Install
 
+### One-liner (recommended)
+
 ```bash
-git clone <this-repo> claude-conversation-analyzer
-cd claude-conversation-analyzer
+curl -fsSL https://raw.githubusercontent.com/theodo-group/coding-conversation-analyzer/main/install.sh | bash
+```
+
+This clones the repo to `~/.coding-conversation-analyzer`, installs dependencies, and
+puts two commands on your PATH: `export-claude-history` and `generate-html`. Re-run the
+same command any time to update.
+
+Override the defaults with env vars if needed:
+
+```bash
+INSTALL_DIR=~/tools/cca BIN_DIR=~/bin \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/theodo-group/coding-conversation-analyzer/main/install.sh)"
+```
+
+Requires Node.js 18+. If `~/.local/bin` isn't on your PATH, the installer prints the line
+to add to your shell profile.
+
+### Manual (from a clone)
+
+```bash
+git clone https://github.com/theodo-group/coding-conversation-analyzer.git
+cd coding-conversation-analyzer
 npm install
 ```
 
-Or run the scripts directly with a global `tsx` (`npm i -g tsx`).
+Then run the scripts with `npm run export` / `npm run view`, or a global `tsx` (`npm i -g tsx`).
 
 ## 1. Export conversations
 
 ```bash
+export-claude-history <output-dir>          # if installed via the one-liner
+# or, from a clone:
 npm run export -- <output-dir>
 # or: tsx src/export-claude-history.ts <output-dir>
 ```
@@ -45,6 +69,8 @@ Output structure:
 ## 2. Generate the HTML viewer
 
 ```bash
+generate-html <input.md> [output.html]      # if installed via the one-liner
+# or, from a clone:
 npm run view -- <input.md> [output.html]
 # or: tsx src/generate-html.ts <input.md> [output.html]
 ```
