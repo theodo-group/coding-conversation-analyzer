@@ -290,7 +290,7 @@ function costContextChart(s: Sidecar, cc: CostContext): string {
     grid.push(`<text x="${W - padR + 6}" y="${(yy + 3).toFixed(1)}" class="axl axl-ctx" text-anchor="start">${fmtTokens(ctxVal)}</text>`);
   }
 
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Cost and context over time">
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Cost and context over time">
   ${grid.join("\n  ")}
   ${ctxArea ? `<path d="${ctxArea}" class="ctx-area"/>` : ""}
   ${ctxPts ? `<polyline points="${ctxPts}" class="ctx-line"/>` : ""}
@@ -574,7 +574,7 @@ body {
 .chart-legend { display: flex; gap: 16px; font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
 .chart-legend .sw { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
 .sw-cost { background: var(--cost); } .sw-ctx { background: var(--ctx); }
-.chart { width: 100%; height: 240px; display: block; }
+.chart { width: 100%; height: auto; display: block; }
 .chart .grid { stroke: rgba(255,255,255,0.06); stroke-width: 1; }
 .chart .axl { font-family: var(--mono); font-size: 10px; }
 .chart .axl-cost { fill: var(--cost); } .chart .axl-ctx { fill: var(--ctx); }
@@ -619,14 +619,14 @@ body {
 .badge { font-size: 11px; color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-weight: 400; }
 
 /* Setup */
-.setup-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.setup-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
 .setup-column-head { margin-bottom: 10px; }
 .setup-scope { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
 .setup-column-head h3 { font-size: 15px; }
 .setup-group { margin-bottom: 14px; }
 .setup-group-head { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
-.setup-list { display: grid; gap: 4px; }
-.setup-item { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
+.setup-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.setup-item { min-width: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
 .setup-name { display: block; font-size: 13px; font-weight: 600; }
 .setup-desc { display: block; font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
