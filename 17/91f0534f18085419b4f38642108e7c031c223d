@@ -1,0 +1,26 @@
+src/generate-dashboard.ts
+  s_c4525822fc6c39::t_dedf0343365223 252-275
+src/generate-html.ts
+  s_c4525822fc6c39::t_3bf36286c79899 859,863,865-885
+  s_c4525822fc6c39::t_e314667e492dd8 764-785,790-792,799-805,813-815,820
+  s_c4525822fc6c39::t_d2c88f2c020df0 6-7
+src/generate-index.ts
+  s_c4525822fc6c39::t_4d03f724c9ea87 124-126,131
+  s_c4525822fc6c39::t_5e1d534009ee35 1-123,127-130,132-245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "1791f0534f18085419b4f38642108e7c031c223d",
+  "prompts": {},
+  "sessions": {
+    "s_c4525822fc6c39": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70146e05-b033-4365-8ca3-8fc732491f40",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
