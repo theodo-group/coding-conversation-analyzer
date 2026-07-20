@@ -41,7 +41,7 @@ for (let i = 0; i < rawArgs.length; i++) {
 const claudeDir = claudeDirArg
   ? path.resolve(claudeDirArg.replace(/^~(?=$|\/)/, os.homedir()))
   : path.join(os.homedir(), ".claude");
-const claudeProjectPath = path.join(claudeDir, "projects", projectRoot.replace(/\//g, "-"));
+const claudeProjectPath = path.join(claudeDir, "projects", projectRoot.replace(/[/_.]/g, "-"));
 const targetDirArg = positional[0];
 
 if (!targetDirArg) {
