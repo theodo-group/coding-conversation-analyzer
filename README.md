@@ -78,8 +78,9 @@ npm run view -- <input.md | input-dir> [output.html | output-dir]
 If the input is a single `.md` file and `output.html` is omitted, it defaults to
 `<input_basename>.html`.
 
-If the input is a **directory**, every `.md`/`.markdown` file inside is converted, writing
-each `.html` next to its source — or into `output-dir` if a second argument is given.
+If the input is a **directory**, every `.md`/`.markdown` file inside is converted
+**recursively**, writing each `.html` next to its source — or mirroring the directory tree
+under `output-dir` if a second argument is given.
 
 ### Viewer features
 

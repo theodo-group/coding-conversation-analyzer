@@ -766,6 +766,20 @@ function convertFile(inputPath: string, outputPath: string): void {
   console.log(`Generated: ${outputPath}`);
 }
 
+// Recursively collect markdown files under `dir`, relative to it.
+function findMarkdownFiles(dir: string, base = dir): string[] {
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...findMarkdownFiles(full, base));
+    } else if (/\.(md|markdown)$/i.test(entry.name)) {
+      out.push(path.relative(base, full));
+    }
+  }
+  return out.sort();
+}
+
 function main() {
   if (process.argv.length < 3) {
     console.error(`Usage: ${process.argv[1]} <input.md | input-dir> [output.html | output-dir]`);
@@ -777,12 +791,10 @@ function main() {
 
   const stat = fs.statSync(inputPath);
   if (stat.isDirectory()) {
-    // Directory mode: convert every markdown file inside, writing each
-    // .html next to its source (or into the given output directory).
-    const mdFiles = fs
-      .readdirSync(inputPath)
-      .filter((f) => /\.(md|markdown)$/i.test(f))
-      .sort();
+    // Directory mode: recursively convert every markdown file inside, mirroring
+    // the tree under the output directory (defaults to the input directory, so
+    // each .html lands next to its source).
+    const mdFiles = findMarkdownFiles(inputPath);
 
     if (!mdFiles.length) {
       console.error(`No markdown files found in ${inputPath}`);
@@ -790,9 +802,9 @@ function main() {
     }
 
     const outDir = outArg ?? inputPath;
-    for (const file of mdFiles) {
-      const src = path.join(inputPath, file);
-      const dest = path.join(outDir, file.replace(/\.[^.]+$/, ".html"));
+    for (const rel of mdFiles) {
+      const src = path.join(inputPath, rel);
+      const dest = path.join(outDir, rel.replace(/\.[^.]+$/, ".html"));
       convertFile(src, dest);
     }
     console.log(`Converted ${mdFiles.length} file(s).`);
