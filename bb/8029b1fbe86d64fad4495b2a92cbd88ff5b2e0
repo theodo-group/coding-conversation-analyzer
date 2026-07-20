@@ -1,0 +1,27 @@
+install.sh
+  s_3a4f2d118d7ddb::t_e91846a8251fda 66-68
+  s_3a4f2d118d7ddb::t_67793e4c75f374 69-70,73
+  s_3a4f2d118d7ddb::t_d0765f5991b778 85
+package.json
+  s_3a4f2d118d7ddb::t_e35cfc79929546 7-8
+README.md
+  s_3a4f2d118d7ddb::t_9b78abc83b1557 48
+  s_3a4f2d118d7ddb::t_070675eb4d99c9 22
+  s_3a4f2d118d7ddb::t_2f209b2fbc87eb 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "bb8029b1fbe86d64fad4495b2a92cbd88ff5b2e0",
+  "prompts": {},
+  "sessions": {
+    "s_3a4f2d118d7ddb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5610d318-98a0-4f82-bdc1-f369cad92859",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
