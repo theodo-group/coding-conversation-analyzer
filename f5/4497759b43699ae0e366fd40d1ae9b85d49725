@@ -1,0 +1,24 @@
+README.md
+  s_3fd9b84dd10b48::t_116f8621b9866f 60-67
+src/export-claude-history.ts
+  s_3fd9b84dd10b48::t_21ec5a1d738938 2
+  s_3fd9b84dd10b48::t_c78fbcb52b4078 1074
+  s_3fd9b84dd10b48::t_ff967a1f9f975e 19-45,48
+  s_3fd9b84dd10b48::t_326c33d748b32b 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "f54497759b43699ae0e366fd40d1ae9b85d49725",
+  "prompts": {},
+  "sessions": {
+    "s_3fd9b84dd10b48": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "83633a3a-1a46-4025-8373-5f9a35c7c1eb",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
