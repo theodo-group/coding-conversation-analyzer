@@ -579,11 +579,10 @@ function main() {
     const fileName = `${ts}-${prefix}.md`;
 
     fs.mkdirSync(branchDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(branchDir, fileName),
-      formatHeader(stats) + stats.messages.join("\n"),
-    );
-    console.log(`  Exported: ${username}/${sanitizeBranch(stats.branch)}/${fileName}`);
+    const targetFile = path.join(branchDir, fileName);
+    fs.writeFileSync(targetFile, formatHeader(stats) + stats.messages.join("\n"));
+    // Print the absolute path so terminals render it as a clickable link.
+    console.log(`  Exported: ${targetFile}`);
 
     // Export subagents
     const subagentsDir = path.join(claudeProjectPath, uuid, "subagents");
