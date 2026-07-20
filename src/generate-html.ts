@@ -759,19 +759,47 @@ function toggleTurn(n) {
 
 // --- Main ---
 
-function main() {
-  if (process.argv.length < 3) {
-    console.error(`Usage: ${process.argv[1]} <input.md> [output.html]`);
-    process.exit(1);
-  }
-
-  const inputPath = process.argv[2]!;
-  const outputPath = process.argv[3] || inputPath.replace(/\.[^.]+$/, ".html");
-
+function convertFile(inputPath: string, outputPath: string): void {
   const htmlContent = generateHtml(inputPath);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, htmlContent, "utf-8");
   console.log(`Generated: ${outputPath}`);
+}
+
+function main() {
+  if (process.argv.length < 3) {
+    console.error(`Usage: ${process.argv[1]} <input.md | input-dir> [output.html | output-dir]`);
+    process.exit(1);
+  }
+
+  const inputPath = process.argv[2]!;
+  const outArg = process.argv[3];
+
+  const stat = fs.statSync(inputPath);
+  if (stat.isDirectory()) {
+    // Directory mode: convert every markdown file inside, writing each
+    // .html next to its source (or into the given output directory).
+    const mdFiles = fs
+      .readdirSync(inputPath)
+      .filter((f) => /\.(md|markdown)$/i.test(f))
+      .sort();
+
+    if (!mdFiles.length) {
+      console.error(`No markdown files found in ${inputPath}`);
+      process.exit(1);
+    }
+
+    const outDir = outArg ?? inputPath;
+    for (const file of mdFiles) {
+      const src = path.join(inputPath, file);
+      const dest = path.join(outDir, file.replace(/\.[^.]+$/, ".html"));
+      convertFile(src, dest);
+    }
+    console.log(`Converted ${mdFiles.length} file(s).`);
+  } else {
+    const outputPath = outArg || inputPath.replace(/\.[^.]+$/, ".html");
+    convertFile(inputPath, outputPath);
+  }
 }
 
 main();

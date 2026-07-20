@@ -69,13 +69,17 @@ Output structure:
 ## 2. Generate the HTML viewer
 
 ```bash
-cca-generate-html <input.md> [output.html]  # if installed via the one-liner
+cca-generate-html <input.md | input-dir> [output.html | output-dir]  # if installed via the one-liner
 # or, from a clone:
-npm run view -- <input.md> [output.html]
-# or: tsx src/generate-html.ts <input.md> [output.html]
+npm run view -- <input.md | input-dir> [output.html | output-dir]
+# or: tsx src/generate-html.ts <input.md | input-dir> [output.html | output-dir]
 ```
 
-If `output.html` is omitted, defaults to `<input_basename>.html`.
+If the input is a single `.md` file and `output.html` is omitted, it defaults to
+`<input_basename>.html`.
+
+If the input is a **directory**, every `.md`/`.markdown` file inside is converted, writing
+each `.html` next to its source — or into `output-dir` if a second argument is given.
 
 ### Viewer features
 
