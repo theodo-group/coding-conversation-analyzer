@@ -101,7 +101,24 @@ default to `<input_basename>-discussion.html` and `<input_basename>-dashboard.ht
 
 If the input is a **directory**, every `.md`/`.markdown` file inside is converted
 **recursively**, writing both files next to each source — or mirroring the directory tree
-under `output-dir` if a second argument is given.
+under `output-dir` if a second argument is given. An **`index.html`** is also written at
+the output root (see below).
+
+### Index page (directory mode)
+
+Converting a directory writes an `index.html` at the output root listing every
+conversation in one table — **title, cost, max context, duration, and change**
+(lines added/removed) — with links to each conversation's discussion and dashboard
+reports.
+
+Each row has a checkbox (ticked by default). A sticky totals bar live-sums the
+selection so several sessions on one feature can be analyzed as a group: cost,
+duration, and change are **summed**, while max context shows the **peak** reached
+across the selection. "Select all" / "Clear" toggle the whole list.
+
+Metrics come from each conversation's `.json` sidecar. A markdown file with no
+sidecar next to it is still listed (with its discussion link) but shows `—` and no
+checkbox, since it has no metrics or dashboard.
 
 ### Discussion viewer features
 
