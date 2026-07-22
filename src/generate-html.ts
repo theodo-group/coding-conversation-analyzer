@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-// generate-html v2.0 – Convert Claude Code conversation markdown exports to interactive HTML
+// generate-html v2.1 – Convert Claude Code conversation markdown exports to interactive HTML
 
 import * as fs from "fs";
 import * as path from "path";
@@ -89,6 +89,32 @@ const TEAMMATE_COLORS: Record<string, string> = {
 function teammateAccent(color: string | undefined): string {
   if (!color) return "#bc8cff";
   return TEAMMATE_COLORS[color.toLowerCase()] ?? color;
+}
+
+// --- Embedded metadata ---
+
+// The exporter appends the dashboard sidecar to the .md as a trailing hidden
+// HTML comment (`<!-- cca:data v=1\n{…}\n-->`), making the .md self-contained
+// for both the discussion and dashboard views. This matches that block so it
+// can be both stripped before parsing the conversation and parsed for metrics.
+const DATA_BLOCK_RE = /\n*<!-- cca:data v=\d+\n([\s\S]*?)\n-->\s*$/;
+
+// Remove the trailing embedded data block so it never leaks into the parsed
+// conversation body.
+function stripDataBlock(text: string): string {
+  return text.replace(DATA_BLOCK_RE, "");
+}
+
+// Parse the embedded sidecar out of raw .md text, or null when absent/invalid.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractEmbeddedSidecar(text: string): any {
+  const m = text.match(DATA_BLOCK_RE);
+  if (!m?.[1]) return null;
+  try {
+    return JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
 }
 
 // --- Parsing ---
@@ -294,6 +320,7 @@ interface CardOpts {
   accentStyle: string;
   titleColor: string;
   navLabel: string;
+  linkHtml?: string;
 }
 
 function buildCardHtml(o: CardOpts): string {
@@ -307,6 +334,7 @@ function buildCardHtml(o: CardOpts): string {
   <div class="card-header" onclick="toggleCard(this)">
     <span class="card-icon">${o.icon}</span>
     ${swatch}<span class="card-title"${titleStyle}>${escape(o.label)}</span>
+    ${o.linkHtml || ""}
     <span class="card-badge">#${o.idx + 1}/${o.total}</span>
     <span class="card-toggle">▼</span>
   </div>
@@ -318,9 +346,45 @@ function buildCardHtml(o: CardOpts): string {
 </div>`;
 }
 
+// Map each spawned agentId → the href of its exported discussion page, relative
+// to `mdPath`. The exporter drops subagent/workflow transcripts into sibling
+// `<base>-subagents/` and `<base>-workflows/` dirs, each file named
+// `<agentTs>-<agentId>.md`; the output tree mirrors the source, so the
+// source-relative path (with `-discussion.html` swapped in) doubles as the href.
+// Used to turn `[[agent:<id>]]` markers in a spawn block into inline links.
+function buildAgentHrefMap(mdPath: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const dir = path.dirname(mdPath);
+  const base = path.basename(mdPath).replace(/\.[^.]+$/, "");
+  const walk = (d: string): void => {
+    if (!fs.existsSync(d)) return;
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) {
+        walk(full);
+      } else if (/\.(md|markdown)$/i.test(e.name)) {
+        // Strip the leading export timestamp (`YYYY-MM-DD-HH-MM-SS-`) to recover
+        // the agentId that names the rest of the file.
+        const m = e.name.replace(/\.[^.]+$/, "").match(/^\d{4}(?:-\d{2}){5}-(.+)$/);
+        if (!m) continue;
+        const href = path
+          .relative(dir, full)
+          .split(path.sep)
+          .join("/")
+          .replace(/\.[^.]+$/, "-discussion.html");
+        map.set(m[1]!, href);
+      }
+    }
+  };
+  walk(path.join(dir, `${base}-subagents`));
+  walk(path.join(dir, `${base}-workflows`));
+  return map;
+}
+
 function generateHtml(mdPath: string): string {
-  const text = fs.readFileSync(mdPath, "utf-8");
+  const text = stripDataBlock(fs.readFileSync(mdPath, "utf-8"));
   const allLines = text.split("\n");
+  const agentHrefs = buildAgentHrefMap(mdPath);
 
   const { fm: frontmatter, rest } = parseFrontmatter(allLines);
   const rawBlocks = parseBlocks(rest);
@@ -369,7 +433,29 @@ function generateHtml(mdPath: string): string {
     const icon = meta.emoji;
     const accentStyle = isTeammate ? `border-left-color:${accent}` : "";
 
-    const bodyHtml = isTeammate ? renderTeammateBody(b.lines) : contentToHtml(b.lines);
+    // Agent/Task spawn blocks carry `[[agent:<id>]]` markers (added by the
+    // exporter). Pull them out of the body and turn resolvable ones into a
+    // header link into the subagent's own discussion page.
+    let bodyLines = b.lines;
+    let linkHtml = "";
+    if (b.subtype === "tool-call") {
+      const ids: string[] = [];
+      bodyLines = b.lines.filter((l) => {
+        const m = l.trim().match(/^\[\[agent:([^\]]+)\]\]$/);
+        if (m) {
+          ids.push(m[1]!);
+          return false;
+        }
+        return true;
+      });
+      linkHtml = ids
+        .map((id) => agentHrefs.get(id))
+        .filter((href): href is string => !!href)
+        .map((href) => `<a class="agent-link" href="${escape(href)}" onclick="event.stopPropagation()" title="Open this subagent's transcript">↗ agent</a>`)
+        .join("");
+    }
+
+    const bodyHtml = isTeammate ? renderTeammateBody(b.lines) : contentToHtml(bodyLines);
     const nextId = idx + 1 < total ? `${b.subtype}-${idx + 1}` : "";
     const prevId = idx > 0 ? `${b.subtype}-${idx - 1}` : "";
     const collapsed =
@@ -390,6 +476,7 @@ function generateHtml(mdPath: string): string {
       accentStyle,
       titleColor: isTeammate ? accent : "",
       navLabel: meta.label,
+      linkHtml,
     });
     gridItems.push({ row: currentRow, col: gc, card, turn: turnI });
     lastColInRow = gc;
@@ -640,6 +727,12 @@ body {
   font-size: 9px; color: var(--text-muted);
   background: var(--bg); padding: 1px 5px; border-radius: 10px; flex-shrink: 0;
 }
+.agent-link {
+  font-size: 9px; font-weight: 600; text-decoration: none; flex-shrink: 0;
+  color: var(--tool-accent); background: var(--bg);
+  border: 1px solid var(--tool-accent); border-radius: 10px; padding: 1px 6px;
+}
+.agent-link:hover { background: var(--tool-accent); color: var(--bg); }
 .card-toggle {
   font-size: 9px; color: var(--text-muted);
   transition: transform 0.15s; flex-shrink: 0;
@@ -803,21 +896,52 @@ function convertFile(inputPath: string, outputPath: string): FileResult {
     metrics: null,
   };
 
+  // Dashboard data can come from the .md's own embedded block (self-contained
+  // export) or, for backward compatibility, a sibling <name>.json sidecar. The
+  // embedded block wins so a hand-carried .md renders a dashboard on its own.
+  const embedded = extractEmbeddedSidecar(fs.readFileSync(inputPath, "utf-8"));
   const sidecarPath = inputPath.replace(/\.[^.]+$/, ".json");
-  if (fs.existsSync(sidecarPath)) {
+  let sidecar = embedded;
+  let source = "embedded block";
+  if (!sidecar && fs.existsSync(sidecarPath)) {
+    try {
+      sidecar = JSON.parse(fs.readFileSync(sidecarPath, "utf-8"));
+      source = sidecarPath;
+    } catch (e) {
+      console.error(`  Dashboard error for ${sidecarPath}: ${e}`);
+    }
+  }
+  if (sidecar) {
     const dashboardPath = outputPath.replace(/\.html$/i, "-dashboard.html");
     try {
-      const sidecar = JSON.parse(fs.readFileSync(sidecarPath, "utf-8"));
       fs.writeFileSync(dashboardPath, generateDashboardHtml(sidecar), "utf-8");
       console.log(`Generated: ${path.resolve(dashboardPath)}`);
       result.dashboardPath = dashboardPath;
       result.metrics = summarizeSidecar(sidecar);
       if (result.metrics.title) result.title = result.metrics.title;
     } catch (e) {
-      console.error(`  Dashboard error for ${sidecarPath}: ${e}`);
+      console.error(`  Dashboard error (${source}): ${e}`);
     }
   }
   return result;
+}
+
+// A subagent/workflow transcript is exported into a `<ts>-<prefix>-subagents/`
+// or `<ts>-<prefix>-workflows/<run>/` directory sitting beside its parent
+// `<ts>-<prefix>.md`. Given a markdown path relative to the scan root, return
+// the parent main discussion's key (its path minus the extension) plus whether
+// this file is a nested child — so the index can nest children under their
+// main. `kind === null` means the file is itself a main discussion.
+function classifyEntry(rel: string): { mainKey: string; kind: "subagent" | "workflow" | null } {
+  const segs = rel.split(path.sep);
+  const dirIdx = segs.findIndex((s) => /-(subagents|workflows)$/.test(s));
+  if (dirIdx !== -1) {
+    const seg = segs[dirIdx]!;
+    const kind = seg.endsWith("-subagents") ? "subagent" : "workflow";
+    const base = seg.replace(/-(subagents|workflows)$/, "");
+    return { mainKey: [...segs.slice(0, dirIdx), base].join(path.sep), kind };
+  }
+  return { mainKey: rel.replace(/\.[^.]+$/, ""), kind: null };
 }
 
 // Recursively collect markdown files under `dir`, relative to it.
@@ -856,18 +980,18 @@ function main() {
     }
 
     const outDir = outArg ?? inputPath;
-    const results: FileResult[] = [];
+    const converted: Array<{ rel: string; result: FileResult }> = [];
     for (const rel of mdFiles) {
       const src = path.join(inputPath, rel);
       const dest = path.join(outDir, rel.replace(/\.[^.]+$/, ".html"));
-      results.push(convertFile(src, dest));
+      converted.push({ rel, result: convertFile(src, dest) });
     }
 
     // An index listing every converted conversation, links + a live grouped
     // total. Hrefs are relative to the index at the output-directory root.
     const relHref = (p: string): string =>
       path.relative(outDir, p).split(path.sep).join("/");
-    const entries: IndexEntry[] = results.map((r) => ({
+    const toEntry = (r: FileResult): IndexEntry => ({
       title: r.title,
       discussionHref: relHref(r.discussionPath),
       dashboardHref: r.dashboardPath ? relHref(r.dashboardPath) : null,
@@ -877,7 +1001,41 @@ function main() {
       linesAdded: r.metrics?.linesAdded ?? 0,
       linesRemoved: r.metrics?.linesRemoved ?? 0,
       hasMetrics: r.metrics !== null,
-    }));
+    });
+
+    // Nest subagent/workflow transcripts under the main discussion that spawned
+    // them, ordered chronologically (their filenames lead with a sortable
+    // timestamp). Main discussions stay in the source scan order.
+    const mains = new Map<string, { entry: IndexEntry; rel: string }>();
+    const kids = new Map<string, Array<{ entry: IndexEntry; rel: string }>>();
+    for (const { rel, result } of converted) {
+      const entry = toEntry(result);
+      const { mainKey, kind } = classifyEntry(rel);
+      if (kind === null) {
+        mains.set(mainKey, { entry, rel });
+      } else {
+        entry.kind = kind;
+        (kids.get(mainKey) ?? kids.set(mainKey, []).get(mainKey)!).push({ entry, rel });
+      }
+    }
+
+    const topLevel: Array<{ entry: IndexEntry; order: string }> = [];
+    for (const [key, { entry, rel }] of mains) {
+      const cs = kids.get(key);
+      if (cs) {
+        cs.sort((a, b) => path.basename(a.rel).localeCompare(path.basename(b.rel)));
+        entry.children = cs.map((c) => c.entry);
+        kids.delete(key);
+      }
+      topLevel.push({ entry, order: rel });
+    }
+    // Children whose main discussion wasn't in the scan — surface them as their
+    // own rows so nothing is silently dropped from the index.
+    for (const cs of kids.values()) {
+      for (const c of cs) topLevel.push({ entry: c.entry, order: c.rel });
+    }
+    topLevel.sort((a, b) => a.order.localeCompare(b.order));
+    const entries: IndexEntry[] = topLevel.map((t) => t.entry);
     const indexPath = path.join(outDir, "index.html");
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(indexPath, generateIndexHtml(entries), "utf-8");

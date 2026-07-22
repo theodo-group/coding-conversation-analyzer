@@ -77,9 +77,13 @@ Output structure:
         agent-abc123.md
 ```
 
-The `.json` **sidecar** carries the structured data the markdown drops — per-message
-token usage, model, timestamps, permission-mode timeline, edit diffs, subagent token
-totals, and the active agents/skills config. The dashboard is generated from it.
+This structured data — per-message token usage, model, timestamps, permission-mode
+timeline, edit diffs, subagent token totals, and the active agents/skills config — is
+what the markdown body drops. It is embedded directly in the `.md` as a trailing hidden
+HTML comment (`<!-- cca:data … -->`, invisible in any rendered markdown), so a single
+`.md` is **self-contained**: it renders both the discussion and the dashboard on its own.
+The same data is also written as a sibling `.json` **sidecar** for backward compatibility
+and for tooling that wants the raw metrics without parsing the markdown.
 
 ## 2. Generate the HTML viewer
 
@@ -93,8 +97,8 @@ npm run view -- <input.md | input-dir> [output.html | output-dir]
 Each markdown input produces **two** files, side by side:
 
 - `<name>-discussion.html` — the three-column interactive viewer (always written)
-- `<name>-dashboard.html` — the metrics dashboard (written only when the `<name>.json`
-  sidecar from `cca-export` sits next to the source markdown)
+- `<name>-dashboard.html` — the metrics dashboard (written whenever the source `.md`
+  carries an embedded `cca:data` block, or a `<name>.json` sidecar sits next to it)
 
 If the input is a single `.md` file and the output argument is omitted, the two files
 default to `<input_basename>-discussion.html` and `<input_basename>-dashboard.html`.

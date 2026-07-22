@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-// export-claude-history v1.7
+// export-claude-history v1.8
 
 import { execSync } from "child_process";
 import * as fs from "fs";
@@ -413,6 +413,11 @@ function parseConversation(lines: string[], uuid: string) {
   const branchCounts: Record<string, number> = {};
   const categories: Record<string, number> = {};
   const pendingTools = new Map<string, { name: string; input: unknown }>();
+  // tool_use id → index in `messages` of an Agent/Task spawn, so we can annotate
+  // that block with the agentId once the tool result reveals it (the id links
+  // the spawn to its exported `…-<agentId>.md` transcript, letting the HTML
+  // viewer render an inline link into the subagent's discussion).
+  const agentSpawnMsgIdx = new Map<string, number>();
 
   const count = (key: string) => {
     categories[key] = (categories[key] || 0) + 1;
@@ -490,6 +495,9 @@ function parseConversation(lines: string[], uuid: string) {
           messages.push(
             `\n## ⚪️ Tool Call: ${b.name}\n${formatToolInput(b.name!, b.input)}`,
           );
+          if ((b.name === "Agent" || b.name === "Task") && b.id) {
+            agentSpawnMsgIdx.set(b.id, messages.length - 1);
+          }
           break;
 
         case "tool_result": {
@@ -509,6 +517,18 @@ function parseConversation(lines: string[], uuid: string) {
           const body = toolName === "Grep" || toolName === "Read" || toolName === "Bash"
             ? "    " + truncate(raw).split("\n").join("\n    ")
             : truncate(raw);
+
+          // An Agent/Task spawn's result announces the launched subagent's id
+          // ("…agentId: <id>…"). Tag the originating spawn block with that id so
+          // the HTML viewer can link straight into the subagent's transcript.
+          if ((pending?.name === "Agent" || pending?.name === "Task") && b.tool_use_id) {
+            const idx = agentSpawnMsgIdx.get(b.tool_use_id);
+            const m = raw.match(/agentId:\s*([^\s)]+)/);
+            if (idx !== undefined && m) {
+              messages[idx] += `\n\n[[agent:${m[1]}]]`;
+              agentSpawnMsgIdx.delete(b.tool_use_id);
+            }
+          }
 
           if (isRejected) {
             count("tool_rejected");
@@ -668,6 +688,19 @@ function exportFile(lines: string[], id: string, targetFile: string): boolean {
 }
 
 // --- Sidecar (dashboard data) extraction ---
+
+// Version tag for the embedded metadata block, bumped if its JSON shape ever
+// changes so readers can detect an incompatible format.
+const CCA_DATA_VERSION = 1;
+
+// Render the sidecar as a trailing HTML comment appended to the .md. HTML
+// comments are invisible in any rendered markdown, so the human-readable
+// conversation is untouched, while `cca-generate-html` can parse the block back
+// out to build the dashboard. Returns "" when no sidecar was built.
+function embedSidecar(sidecar: Sidecar | null): string {
+  if (!sidecar) return "";
+  return `\n\n<!-- cca:data v=${CCA_DATA_VERSION}\n${JSON.stringify(sidecar)}\n-->\n`;
+}
 
 function emptyUsage(): Usage {
   return { in: 0, out: 0, cw: 0, cr: 0 };
@@ -1169,16 +1202,14 @@ function main() {
     const branchDir = path.join(targetDir, username, sanitizeBranch(stats.branch));
     const fileName = `${ts}-${prefix}.md`;
 
-    fs.mkdirSync(branchDir, { recursive: true });
-    const targetFile = path.join(branchDir, fileName);
-    fs.writeFileSync(targetFile, formatHeader(stats) + stats.messages.join("\n"));
-    // Print the absolute path so terminals render it as a clickable link.
-    console.log(`  Exported: ${targetFile}`);
-
-    // Sidecar JSON (structured metrics for the dashboard view). Sits next to the
-    // .md so `cca-generate-html` can render both a -discussion and a -dashboard page.
+    // Build the dashboard sidecar first so it can be embedded directly in the
+    // .md as a hidden data block — this makes the exported .md self-contained
+    // (a standalone file renders both the discussion and dashboard views, with
+    // no jsonl or sibling .json needed). Failure to build it is non-fatal: the
+    // .md is still written, just without the embedded metrics.
+    let sidecar: Sidecar | null = null;
     try {
-      const sidecar = buildSidecar(lines, uuid);
+      sidecar = buildSidecar(lines, uuid);
       accumulateSubagentUsage(uuid, sidecar.subagentUsageByModel);
       // Fold subagent file edits + tool usage into whole-session totals, and
       // record the subagent-only portion for the dashboard's main/sub split.
@@ -1194,9 +1225,24 @@ function main() {
       };
       sidecar.setup.project = readSetupDir(path.join(projectRoot, ".claude"));
       sidecar.setup.user = readSetupDir(claudeDir);
-      fs.writeFileSync(targetFile.replace(/\.md$/, ".json"), JSON.stringify(sidecar));
     } catch (e) {
       console.error(`    Sidecar error: ${e}`);
+    }
+
+    fs.mkdirSync(branchDir, { recursive: true });
+    const targetFile = path.join(branchDir, fileName);
+    fs.writeFileSync(
+      targetFile,
+      formatHeader(stats) + stats.messages.join("\n") + embedSidecar(sidecar),
+    );
+    // Print the absolute path so terminals render it as a clickable link.
+    console.log(`  Exported: ${targetFile}`);
+
+    // Also emit the sidecar as a sibling .json. Redundant with the embedded
+    // block above, kept for backward compatibility with older readers and for
+    // callers that want the raw metrics without parsing the markdown.
+    if (sidecar) {
+      fs.writeFileSync(targetFile.replace(/\.md$/, ".json"), JSON.stringify(sidecar));
     }
 
     // Export subagents
