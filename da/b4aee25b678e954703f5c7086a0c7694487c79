@@ -1,0 +1,52 @@
+src/generate-html.ts
+  s_074e3886fe5b3b::t_7f2a03e78cf964 337
+  s_074e3886fe5b3b::t_4afec631b6763b 479
+  s_ded73b87de9d60::t_d55189b088c420 94-108,111-119
+  s_ded73b87de9d60::t_4b34c91c24bf01 385
+  s_ded73b87de9d60::t_8740731576ac34 109-110
+  s_074e3886fe5b3b::t_87f4bc776688c2 349-383,387
+  s_074e3886fe5b3b::t_dbf37d8ed437a7 983,987,994,1004-1038
+  s_ded73b87de9d60::t_b730d716231f6f 2
+  s_074e3886fe5b3b::t_b4621dac9b4ab6 323
+  s_074e3886fe5b3b::t_98b4c80dc3a988 929-946
+  s_ded73b87de9d60::t_143f0cd3977da1 899-902,905-914,923
+  s_ded73b87de9d60::t_005c5d808c9746 904
+  s_074e3886fe5b3b::t_9411052e695bc5 732-733,735
+  s_074e3886fe5b3b::t_a8b2b473bc3b47 436-458
+  s_074e3886fe5b3b::t_92528819302d81 730-731,734
+src/export-claude-history.ts
+  s_ded73b87de9d60::t_09626243d7cf21 2
+  s_074e3886fe5b3b::t_4cfd386349dcb2 416-420
+  s_074e3886fe5b3b::t_54c15ba2ead9d3 498-500
+  s_ded73b87de9d60::t_d2019a4324fb98 692-704
+  s_ded73b87de9d60::t_33808291ac9588 1205-1210,1212,1232-1245
+  s_074e3886fe5b3b::t_e5066e5e3b510b 521-532
+  s_ded73b87de9d60::t_0b0c602cc99326 1246-1247
+README.md
+  s_ded73b87de9d60::t_b876c87b317bef 80-86
+  s_ded73b87de9d60::t_5f08abdb59201d 100-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "dab4aee25b678e954703f5c7086a0c7694487c79",
+  "prompts": {},
+  "sessions": {
+    "s_074e3886fe5b3b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "215e3e75-3de3-468d-9750-e21d9d5107cd",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    },
+    "s_ded73b87de9d60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "45fef21d-e995-4472-971f-8e8d188aba80",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
