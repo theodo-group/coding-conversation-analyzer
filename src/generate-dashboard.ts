@@ -20,6 +20,7 @@ interface TimelinePoint {
   kind: string;
   t: number;
   model?: string;
+  subagentModel?: string;
   tool?: string;
   label?: string;
   permissionMode?: string;
@@ -30,6 +31,7 @@ interface SubagentSpawn {
   description: string;
   input: string;
   t: number;
+  model?: string;
 }
 interface DiffLine {
   type: "add" | "del" | "ctx";
@@ -351,7 +353,7 @@ function timelineTrack(s: Sidecar, modelColors: Record<string, string>): string 
       const isPrompt = p.kind === "prompt";
       const color = isPrompt ? "#3fb950" : p.model ? modelColors[p.model] || "#8b949e" : "#8b949e";
       const cls = ["marker", `k-${p.kind}`, p.kind === "thinking" ? "is-thinking" : ""].filter(Boolean).join(" ");
-      const parts = [`T+${fmtOffset(p.t)}`, p.kind + (p.tool ? `: ${p.tool}` : ""), p.model || "", p.label || ""].filter(Boolean);
+      const parts = [`T+${fmtOffset(p.t)}`, p.kind + (p.tool ? `: ${p.tool}` : ""), p.model || "", p.subagentModel ? `→ ${p.subagentModel}` : "", p.label || ""].filter(Boolean);
       return `<span class="${cls}" style="left:${left}%; --mk:${color}" data-tip="${attr(parts.join("\n"))}"></span>`;
     })
     .join("");
@@ -453,7 +455,7 @@ function subagentSection(s: Sidecar): string {
     ? `<div class="subagent-track">${s.subagents
         .map((a) => {
           const left = ((a.t / dur) * 100).toFixed(3);
-          const tip = [`T+${fmtOffset(a.t)}`, `type: ${a.type}`, a.description, a.input].filter(Boolean).join("\n");
+          const tip = [`T+${fmtOffset(a.t)}`, `type: ${a.type}`, a.model ? `model: ${a.model}` : "", a.description, a.input].filter(Boolean).join("\n");
           return `<span class="subagent-pill" style="left:${left}%" data-tip="${attr(tip)}">${escape(a.type)}</span>`;
         })
         .join("")}</div>`

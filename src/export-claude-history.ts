@@ -113,7 +113,8 @@ interface TimelinePoint {
     | "notification"
     | "skill";
   t: number;
-  model?: string;
+  model?: string; // model that issued the message/call (the caller)
+  subagentModel?: string; // for Agent/Task spawns: the model the subagent ran on
   tool?: string;
   label?: string; // short text preview (prompts, tool inputs)
   permissionMode?: string;
@@ -125,6 +126,9 @@ interface SubagentSpawn {
   description: string;
   input: string;
   t: number;
+  // Model the subagent actually ran on (resolved from its transcript), not the
+  // orchestrator model that issued the spawn. Absent if it can't be resolved.
+  model?: string;
 }
 
 interface DiffLine {
@@ -752,6 +756,34 @@ function sumUsageByModel(lines: string[], acc: Record<string, Usage>): void {
   }
 }
 
+// Pick the model that produced the most output tokens in a transcript. Used to
+// label an Agent/Task spawn with the model the subagent actually ran on, rather
+// than the orchestrator model that issued the spawn.
+function dominantModelOf(lines: string[]): string | undefined {
+  const byModel: Record<string, number> = {};
+  for (const line of lines) {
+    let obj: JsonlLine;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const model = obj.message?.model;
+    if (obj.type === "assistant" && model) {
+      byModel[model] = (byModel[model] || 0) + (obj.message?.usage?.output_tokens || 0);
+    }
+  }
+  let best: string | undefined;
+  let bestN = -1;
+  for (const [m, n] of Object.entries(byModel)) {
+    if (n > bestN) {
+      bestN = n;
+      best = m;
+    }
+  }
+  return best;
+}
+
 function splitLines(s: string): string[] {
   return s.replace(/\n$/, "").split("\n");
 }
@@ -930,6 +962,27 @@ function buildSidecar(lines: string[], uuid: string): Sidecar {
   const branchCounts: Record<string, number> = {};
   const pendingTools = new Map<string, string>();
 
+  // Map each subagent id to the model it ran on, read from its own transcript
+  // (files are named `agent-<id>.jsonl`). Lets an Agent/Task spawn report the
+  // subagent's model rather than the orchestrator's.
+  const subagentModelById = new Map<string, string>();
+  const subagentsDir = path.join(claudeProjectPath, uuid, "subagents");
+  if (fs.existsSync(subagentsDir)) {
+    for (const entry of fs.readdirSync(subagentsDir)) {
+      if (!entry.endsWith(".jsonl")) continue;
+      const id = entry.replace(/^agent-/, "").replace(/\.jsonl$/, "");
+      try {
+        const m = dominantModelOf(readLines(path.join(subagentsDir, entry)));
+        if (m) subagentModelById.set(id, m);
+      } catch {
+        /* skip unreadable transcript */
+      }
+    }
+  }
+  // tool_use_id -> the spawn's timeline point + record, so its tool_result (which
+  // carries the subagent id) can backfill the resolved model.
+  const agentSpawns = new Map<string, { point: TimelinePoint; spawn: SubagentSpawn }>();
+
   const toSec = (ts: string): number =>
     firstTs ? (new Date(ts).getTime() - new Date(firstTs).getTime()) / 1000 : 0;
 
@@ -1027,12 +1080,16 @@ function buildSidecar(lines: string[], uuid: string): Sidecar {
 
           if ((name === "Agent" || name === "Task") && b.input && typeof b.input === "object") {
             const inp = b.input as Record<string, unknown>;
-            subagents.push({
+            const spawn: SubagentSpawn = {
               type: String(inp["subagent_type"] ?? inp["agentType"] ?? "agent"),
               description: String(inp["description"] ?? ""),
               input: truncate(String(inp["prompt"] ?? ""), 600),
               t,
-            });
+            };
+            subagents.push(spawn);
+            // `point.model` above is the orchestrator's model; the spawn's
+            // tool_result adds `subagentModel` — the model the subagent ran on.
+            if (b.id) agentSpawns.set(b.id, { point, spawn });
           }
           if (name === "Write" || name === "Edit") {
             const d = diffFromToolUse(name, b.input, "main");
@@ -1040,10 +1097,29 @@ function buildSidecar(lines: string[], uuid: string): Sidecar {
           }
           break;
         }
-        case "tool_result":
-          if (b.tool_use_id) pendingTools.delete(b.tool_use_id);
+        case "tool_result": {
+          if (b.tool_use_id) {
+            pendingTools.delete(b.tool_use_id);
+            const spawn = agentSpawns.get(b.tool_use_id);
+            if (spawn) {
+              agentSpawns.delete(b.tool_use_id);
+              const raw =
+                typeof b.content === "string"
+                  ? b.content
+                  : Array.isArray(b.content)
+                    ? b.content.map((c) => c.text || "").join("\n")
+                    : "";
+              const m = raw.match(/agentId:\s*([^\s)]+)/);
+              const subModel = m?.[1] ? subagentModelById.get(m[1]) : undefined;
+              if (subModel) {
+                spawn.point.subagentModel = subModel;
+                spawn.spawn.model = subModel;
+              }
+            }
+          }
           timeline.push({ i: i++, kind: "tool_result", t });
           break;
+        }
       }
     }
   }
