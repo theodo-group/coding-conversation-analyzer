@@ -423,6 +423,19 @@ function parseConversation(lines: string[], uuid: string) {
   // viewer render an inline link into the subagent's discussion).
   const agentSpawnMsgIdx = new Map<string, number>();
 
+  // Per-message context window (input + cache-write + cache-read), tracked in
+  // parallel with `messages` so each rendered block can be tagged with how full
+  // the window was. `currentMsgCtx` is the value for the message being emitted;
+  // `pushMsg` snapshots it alongside every block. Assistant messages carry a
+  // real value (their API call's window); user/tool blocks are left undefined
+  // and forward-filled below to the next call that consumes them.
+  let currentMsgCtx: number | undefined;
+  const ctxs: (number | undefined)[] = [];
+  const pushMsg = (md: string): void => {
+    messages.push(md);
+    ctxs.push(currentMsgCtx);
+  };
+
   const count = (key: string) => {
     categories[key] = (categories[key] || 0) + 1;
   };
@@ -447,21 +460,31 @@ function parseConversation(lines: string[], uuid: string) {
     const msg = obj.message;
     if (!msg?.role) continue;
 
+    // Window size for this message's blocks: only assistant API calls report a
+    // usage, and input + cache-write + cache-read is the full prompt that call
+    // saw. User/tool messages have none (they are inputs to the next call).
+    currentMsgCtx =
+      msg.role === "assistant" && msg.usage
+        ? (msg.usage.input_tokens ?? 0) +
+            (msg.usage.cache_creation_input_tokens ?? 0) +
+            (msg.usage.cache_read_input_tokens ?? 0) || undefined
+        : undefined;
+
     // String content = user message or task notification
     if (typeof msg.content === "string") {
       if (msg.content.trim()) {
         if (msg.content.trimStart().startsWith("<task-notification>")) {
           count("task_notification");
-          messages.push(`\n## 🔔 Task Notification\n${formatTaskNotification(msg.content)}`);
+          pushMsg(`\n## 🔔 Task Notification\n${formatTaskNotification(msg.content)}`);
         } else if (msg.content.trimStart().startsWith("<command-message>")) {
           count("skill_call");
-          messages.push(`\n## 🧑 User calling skill\n${formatCommandMessage(msg.content)}`);
+          pushMsg(`\n## 🧑 User calling skill\n${formatCommandMessage(msg.content)}`);
         } else if (msg.content.trimStart().startsWith("Base directory for this skill:")) {
           count("skill_prompt");
-          messages.push(`\n## 📜 Skill Prompt\n${msg.content}`);
+          pushMsg(`\n## 📜 Skill Prompt\n${msg.content}`);
         } else {
           count("user");
-          messages.push(`\n## 🧑 User\n${msg.content}`);
+          pushMsg(`\n## 🧑 User\n${msg.content}`);
         }
       }
       continue;
@@ -474,7 +497,7 @@ function parseConversation(lines: string[], uuid: string) {
         case "thinking":
           if (b.thinking) {
             count("thinking");
-            messages.push(`\n## 🧠 Thinking\n${b.thinking}`);
+            pushMsg(`\n## 🧠 Thinking\n${b.thinking}`);
           }
           break;
 
@@ -482,13 +505,13 @@ function parseConversation(lines: string[], uuid: string) {
           if (b.text?.trim()) {
             if (msg.role === "assistant") {
               count("assistant");
-              messages.push(`\n## 🤖 Assistant\n${b.text}`);
+              pushMsg(`\n## 🤖 Assistant\n${b.text}`);
             } else if (b.text.trimStart().startsWith("Base directory for this skill:")) {
               count("skill_prompt");
-              messages.push(`\n## 📜 Skill Prompt\n${b.text}`);
+              pushMsg(`\n## 📜 Skill Prompt\n${b.text}`);
             } else {
               count("user");
-              messages.push(`\n## 🧑 User\n${b.text}`);
+              pushMsg(`\n## 🧑 User\n${b.text}`);
             }
           }
           break;
@@ -496,7 +519,7 @@ function parseConversation(lines: string[], uuid: string) {
         case "tool_use":
           count(`tool_call:${b.name}`);
           if (b.id) pendingTools.set(b.id, { name: b.name!, input: b.input });
-          messages.push(
+          pushMsg(
             `\n## ⚪️ Tool Call: ${b.name}\n${formatToolInput(b.name!, b.input)}`,
           );
           if ((b.name === "Agent" || b.name === "Task") && b.id) {
@@ -536,13 +559,13 @@ function parseConversation(lines: string[], uuid: string) {
 
           if (isRejected) {
             count("tool_rejected");
-            messages.push(`\n## ❌ Tool Rejected: ${toolName}\n${body}`);
+            pushMsg(`\n## ❌ Tool Rejected: ${toolName}\n${body}`);
           } else if (isError) {
             count("tool_error");
-            messages.push(`\n## 🔴 Tool Error: ${toolName}\n${body}`);
+            pushMsg(`\n## 🔴 Tool Error: ${toolName}\n${body}`);
           } else if (body.trim()) {
             count("tool_result");
-            messages.push(`\n## 🟢 Tool Result: ${toolName}\n${body}`);
+            pushMsg(`\n## 🟢 Tool Result: ${toolName}\n${body}`);
           }
           break;
         }
@@ -552,6 +575,22 @@ function parseConversation(lines: string[], uuid: string) {
 
   const branch =
     Object.entries(branchCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "unknown";
+
+  // Forward-fill so every block carries a window size: an input block (user
+  // prompt, tool result) shows the window of the next API call that consumes
+  // it, while the model's own output blocks keep their producing call's window.
+  let nextCtx: number | undefined;
+  for (let k = ctxs.length - 1; k >= 0; k--) {
+    if (ctxs[k] !== undefined) nextCtx = ctxs[k];
+    else ctxs[k] = nextCtx;
+  }
+  // Tag each heading with a hidden marker the HTML viewer reads (and strips).
+  // An HTML comment stays invisible in plain-markdown renderers.
+  for (let k = 0; k < messages.length; k++) {
+    const c = ctxs[k];
+    if (c === undefined) continue;
+    messages[k] = messages[k]!.replace(/^\n(## [^\n]*)/, `\n$1 <!--cca-ctx:${c}-->`);
+  }
 
   return { messages, firstTimestamp, lastTimestamp, branch, categories, uuid };
 }

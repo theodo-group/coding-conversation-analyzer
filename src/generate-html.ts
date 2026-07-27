@@ -29,6 +29,10 @@ interface RawBlock {
   heading: string;
   lines: string[];
   isMeta: boolean;
+  // Context window (tokens) when this block was in scope, from the exporter's
+  // hidden `<!--cca-ctx:N-->` heading marker. Absent for trailing blocks that
+  // no API call ever consumed.
+  ctx?: number;
 }
 
 interface ContentBlock {
@@ -38,6 +42,7 @@ interface ContentBlock {
   subtype: Subtype;
   teammateId?: string;
   teammateColor?: string;
+  ctx?: number;
 }
 
 interface GridItem {
@@ -170,7 +175,14 @@ function parseBlocks(lines: string[]): RawBlock[] {
     const m = line.match(BLOCK_HEADING_RE);
     if (m) {
       if (current) blocks.push(current);
-      current = { heading: m[1]!.trim(), lines: [], isMeta: false };
+      let heading = m[1]!.trim();
+      let ctx: number | undefined;
+      const cm = heading.match(/\s*<!--cca-ctx:(\d+)-->\s*$/);
+      if (cm) {
+        ctx = Number(cm[1]);
+        heading = heading.slice(0, cm.index).trim();
+      }
+      current = { heading, lines: [], isMeta: false, ...(ctx !== undefined ? { ctx } : {}) };
       seenBlock = true;
       continue;
     }
@@ -321,6 +333,12 @@ interface CardOpts {
   titleColor: string;
   navLabel: string;
   linkHtml?: string;
+  ctx?: number;
+}
+
+// Compact token count for the context badge: 52341 → "52k", 980 → "980".
+function fmtCtx(n: number): string {
+  return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 }
 
 function buildCardHtml(o: CardOpts): string {
@@ -335,6 +353,7 @@ function buildCardHtml(o: CardOpts): string {
     <span class="card-icon">${o.icon}</span>
     ${swatch}<span class="card-title"${titleStyle}>${escape(o.label)}</span>
     ${o.linkHtml || ""}
+    ${o.ctx !== undefined ? `<span class="card-ctx" title="Context window in scope here: ${o.ctx.toLocaleString()} tokens">${fmtCtx(o.ctx)}</span>` : ""}
     <span class="card-badge">#${o.idx + 1}/${o.total}</span>
     <span class="card-toggle">▼</span>
   </div>
@@ -391,7 +410,7 @@ function generateHtml(mdPath: string): string {
 
   const items: ContentBlock[] = rawBlocks
     .filter((b) => !b.isMeta)
-    .map((b) => ({ heading: b.heading, lines: b.lines, ...classify(b.heading) }));
+    .map((b) => ({ heading: b.heading, lines: b.lines, ...(b.ctx !== undefined ? { ctx: b.ctx } : {}), ...classify(b.heading) }));
 
   const totals: Partial<Record<Subtype, number>> = {};
   for (const b of items) totals[b.subtype] = (totals[b.subtype] ?? 0) + 1;
@@ -477,6 +496,7 @@ function generateHtml(mdPath: string): string {
       titleColor: isTeammate ? accent : "",
       navLabel: meta.label,
       linkHtml,
+      ...(b.ctx !== undefined ? { ctx: b.ctx } : {}),
     });
     gridItems.push({ row: currentRow, col: gc, card, turn: turnI });
     lastColInRow = gc;
@@ -727,6 +747,12 @@ body {
   font-size: 9px; color: var(--text-muted);
   background: var(--bg); padding: 1px 5px; border-radius: 10px; flex-shrink: 0;
 }
+.card-ctx {
+  font-size: 9px; font-weight: 600; color: var(--tool-accent);
+  background: var(--bg); padding: 1px 5px; border-radius: 10px; flex-shrink: 0;
+  font-variant-numeric: tabular-nums; cursor: help;
+}
+.card-ctx::before { content: "\\25EF"; margin-right: 3px; opacity: 0.6; }
 .agent-link {
   font-size: 9px; font-weight: 600; text-decoration: none; flex-shrink: 0;
   color: var(--tool-accent); background: var(--bg);
