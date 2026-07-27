@@ -1,0 +1,22 @@
+src/generate-index.ts
+  s_074e3886fe5b3b::t_dc35976fdd2fb6 11-16,27-28
+  s_074e3886fe5b3b::t_acf6b42465ae2b 59-62,68-74,81-83,85
+  s_074e3886fe5b3b::t_9cf5f472945ea0 160-170
+  s_074e3886fe5b3b::t_d965947e6d7dea 95-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "52d93ec0433328fe4e1e26144a00933778109950",
+  "prompts": {},
+  "sessions": {
+    "s_074e3886fe5b3b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "215e3e75-3de3-468d-9750-e21d9d5107cd",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
