@@ -8,6 +8,12 @@
 // One conversation's row. `metrics` is null when no `.json` sidecar sat next
 // to the source markdown (no dashboard, no numbers) — the row still links to
 // the discussion viewer but contributes nothing to the selected totals.
+//
+// `children` holds the subagent/workflow transcripts spawned by this main
+// discussion, nested beneath it in chronological order. A child carries `kind`
+// (its badge) and never contributes to the selected totals — its cost/tokens
+// are already folded into the parent's metrics — so it is rendered without a
+// checkbox.
 export interface IndexEntry {
   title: string;
   discussionHref: string;
@@ -18,6 +24,8 @@ export interface IndexEntry {
   linesAdded: number;
   linesRemoved: number;
   hasMetrics: boolean;
+  kind?: "subagent" | "workflow";
+  children?: IndexEntry[];
 }
 
 function escape(text: string): string {
@@ -48,25 +56,33 @@ function fmtDuration(sec: number): string {
   return `${h}h ${m % 60}m`;
 }
 
-function row(e: IndexEntry): string {
+// Render one row. Children (subagents/workflows) are indented under their main
+// discussion: they get a tree connector instead of a checkbox and a kind badge,
+// since their metrics are already counted in the parent's totals.
+function row(e: IndexEntry, isChild = false): string {
   const links =
     `<a class="lnk" href="${escape(e.discussionHref)}">discussion</a>` +
     (e.dashboardHref ? `<a class="lnk" href="${escape(e.dashboardHref)}">dashboard</a>` : `<span class="lnk lnk-off">dashboard</span>`);
 
   // Data attributes carry the raw numbers so the client can sum/max the
-  // selected rows without re-parsing the formatted cells.
-  const cb = e.hasMetrics
-    ? `<input type="checkbox" class="pick" checked data-cost="${e.totalCost}" data-ctx="${e.peakContext}" data-dur="${e.durationSeconds}" data-add="${e.linesAdded}" data-del="${e.linesRemoved}">`
-    : `<input type="checkbox" class="pick" disabled title="No metrics — sidecar JSON missing">`;
+  // selected rows without re-parsing the formatted cells. Children have no
+  // checkbox — their usage is already part of the parent's metrics.
+  const cb = isChild
+    ? `<span class="branch" aria-hidden="true">└</span>`
+    : e.hasMetrics
+      ? `<input type="checkbox" class="pick" checked data-cost="${e.totalCost}" data-ctx="${e.peakContext}" data-dur="${e.durationSeconds}" data-add="${e.linesAdded}" data-del="${e.linesRemoved}">`
+      : `<input type="checkbox" class="pick" disabled title="No metrics — sidecar JSON missing">`;
 
   const num = (html: string) => (e.hasMetrics ? html : `<span class="dash">—</span>`);
   const change = e.hasMetrics
     ? `<span class="add">+${e.linesAdded}</span> <span class="del">−${e.linesRemoved}</span>`
     : `<span class="dash">—</span>`;
 
-  return `<tr>
+  const badge = e.kind ? `<span class="kind kind-${e.kind}">${e.kind}</span>` : "";
+
+  return `<tr${isChild ? ' class="child"' : ""}>
   <td class="c-pick">${cb}</td>
-  <td class="c-title"><span class="title" title="${escape(e.title)}">${escape(e.title)}</span><div class="links">${links}</div></td>
+  <td class="c-title">${badge}<span class="title" title="${escape(e.title)}">${escape(e.title)}</span><div class="links">${links}</div></td>
   <td class="c-num">${num(fmtMoney(e.totalCost))}</td>
   <td class="c-num">${num(fmtTokens(e.peakContext))}</td>
   <td class="c-num">${num(fmtDuration(e.durationSeconds))}</td>
@@ -76,7 +92,9 @@ function row(e: IndexEntry): string {
 
 export function generateIndexHtml(entries: IndexEntry[], heading = "Conversations"): string {
   const withMetrics = entries.filter((e) => e.hasMetrics).length;
-  const rows = entries.map(row).join("\n");
+  const rows = entries
+    .map((e) => [row(e), ...(e.children ?? []).map((c) => row(c, true))].join("\n"))
+    .join("\n");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -139,6 +157,17 @@ thead .c-num { text-align: right; }
 .c-change .add { color: var(--cost); } .c-change .del { color: #f85149; }
 .dash { color: var(--text-muted); }
 .title { display: block; font-weight: 600; max-width: 56ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Nested subagent / workflow rows, indented under their main discussion. */
+.child td { background: rgba(88, 166, 255, 0.03); }
+.child .c-title { padding-left: 30px; }
+.child .title { font-weight: 500; color: var(--text-muted); }
+.branch { color: var(--border); font-family: var(--mono); font-size: 13px; }
+.kind {
+  display: inline-block; margin-right: 7px; padding: 1px 6px; border-radius: 5px;
+  font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em;
+  vertical-align: 1px; border: 1px solid var(--border); color: var(--text-muted);
+}
+.kind-workflow { color: var(--ctx); border-color: rgba(88, 166, 255, 0.4); }
 .links { margin-top: 3px; display: flex; gap: 12px; }
 .lnk { font-size: 11px; color: var(--accent); text-decoration: none; }
 .lnk:hover { text-decoration: underline; }
