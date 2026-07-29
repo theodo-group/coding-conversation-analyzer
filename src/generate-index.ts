@@ -18,6 +18,7 @@ export interface IndexEntry {
   title: string;
   discussionHref: string;
   dashboardHref: string | null;
+  simulationHref: string | null;
   totalCost: number;
   peakContext: number;
   durationSeconds: number;
@@ -62,7 +63,8 @@ function fmtDuration(sec: number): string {
 function row(e: IndexEntry, isChild = false): string {
   const links =
     `<a class="lnk" href="${escape(e.discussionHref)}">discussion</a>` +
-    (e.dashboardHref ? `<a class="lnk" href="${escape(e.dashboardHref)}">dashboard</a>` : `<span class="lnk lnk-off">dashboard</span>`);
+    (e.dashboardHref ? `<a class="lnk" href="${escape(e.dashboardHref)}">dashboard</a>` : `<span class="lnk lnk-off">dashboard</span>`) +
+    (e.simulationHref ? `<a class="lnk" href="${escape(e.simulationHref)}">simulation</a>` : `<span class="lnk lnk-off">simulation</span>`);
 
   // Data attributes carry the raw numbers so the client can sum/max the
   // selected rows without re-parsing the formatted cells. Children have no

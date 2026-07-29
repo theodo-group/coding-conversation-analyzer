@@ -1,10 +1,12 @@
 #!/usr/bin/env tsx
-// export-claude-history v1.8
+// export-claude-history — export Claude Code conversations to markdown.
+// Version is unified project-wide; see package.json and CLAUDE.md → Versioning.
 
 import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { VERSION, handleVersionFlag } from "./version.ts";
 
 function getProjectRoot(): string {
   try {
@@ -19,6 +21,7 @@ const projectRoot = getProjectRoot();
 // Parse CLI: positional args, `--full`, and `--claude-dir <path>` (also
 // accepts `--claude-dir=<path>`) to override the default `~/.claude` location.
 const rawArgs = process.argv.slice(2);
+handleVersionFlag(rawArgs, "cca-export");
 const fullExport = rawArgs.includes("--full");
 const positional: string[] = [];
 let claudeDirArg: string | undefined;
@@ -45,7 +48,7 @@ const claudeProjectPath = path.join(claudeDir, "projects", projectRoot.replace(/
 const targetDirArg = positional[0];
 
 if (!targetDirArg) {
-  console.error("Usage: export-claude-history <target-dir> [--full] [--claude-dir <path>]");
+  console.error("Usage: export-claude-history <target-dir> [--full] [--claude-dir <path>] [--version]");
   process.exit(1);
 }
 
@@ -119,6 +122,8 @@ interface TimelinePoint {
   label?: string; // short text preview (prompts, tool inputs)
   permissionMode?: string;
   usage?: Usage; // present on assistant API calls only
+  outChars?: number; // tool_result points: size of the result content, for
+  // apportioning a turn's context weight across parallel tools in the simulator
 }
 
 interface SubagentSpawn {
@@ -742,7 +747,9 @@ const CCA_DATA_VERSION = 1;
 // out to build the dashboard. Returns "" when no sidecar was built.
 function embedSidecar(sidecar: Sidecar | null): string {
   if (!sidecar) return "";
-  return `\n\n<!-- cca:data v=${CCA_DATA_VERSION}\n${JSON.stringify(sidecar)}\n-->\n`;
+  // The marker records both the data-format version (`v`, bumped only on schema
+  // changes) and the tool version that wrote it (`tool`, the project semver).
+  return `\n\n<!-- cca:data v=${CCA_DATA_VERSION} tool=${VERSION}\n${JSON.stringify(sidecar)}\n-->\n`;
 }
 
 function emptyUsage(): Usage {
@@ -1156,7 +1163,20 @@ function buildSidecar(lines: string[], uuid: string): Sidecar {
               }
             }
           }
-          timeline.push({ i: i++, kind: "tool_result", t });
+          // Size of the result content — used by the simulator to split a
+          // turn's context weight across sibling tools by how much each returned.
+          const resultText =
+            typeof b.content === "string"
+              ? b.content
+              : Array.isArray(b.content)
+                ? b.content.map((c) => c.text || "").join("\n")
+                : b.content
+                  ? JSON.stringify(b.content)
+                  : obj.toolUseResult
+                    ? JSON.stringify(obj.toolUseResult)
+                    : "";
+          const outChars = resultText.length;
+          timeline.push({ i: i++, kind: "tool_result", t, ...(outChars ? { outChars } : {}) });
           break;
         }
       }

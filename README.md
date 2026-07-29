@@ -7,8 +7,9 @@ Two standalone TypeScript tools, run with [`tsx`](https://github.com/privatenumb
 
 1. **`export-claude-history`** — dumps conversations to markdown (plus a structured
    JSON sidecar), organized by git branch.
-2. **`generate-html`** — converts a markdown export into two reports: a three-column
-   interactive **discussion viewer** and a metrics **dashboard**.
+2. **`generate-html`** — converts a markdown export into three reports: a three-column
+   interactive **discussion viewer**, a metrics **dashboard**, and a token/cost/time
+   **simulation** page.
 
 Both are self-contained scripts using only Node built-ins.
 
@@ -21,8 +22,18 @@ curl -fsSL https://raw.githubusercontent.com/theodo-group/coding-conversation-an
 ```
 
 This clones the repo to `~/.coding-conversation-analyzer`, installs dependencies, and
-puts two commands on your PATH: `cca-export` and `cca-generate-html`. Re-run the
-same command any time to update.
+puts the **`cca`** command on your PATH with three subcommands:
+
+```bash
+cca export <output-dir>              # export conversations to markdown
+cca generate-html <input> [output]   # render a markdown export to HTML
+cca update                           # update to the latest version
+cca --version                        # print the installed version
+```
+
+The standalone aliases `cca-export` and `cca-generate-html` are also installed for
+backward compatibility. Re-run the one-liner — or `cca update` — any time to update;
+it's a no-op when you're already on the latest version.
 
 Override the defaults with env vars if needed:
 
@@ -47,7 +58,7 @@ Then run the scripts with `npm run export` / `npm run view`, or a global `tsx` (
 ## 1. Export conversations
 
 ```bash
-cca-export <output-dir>                      # if installed via the one-liner
+cca export <output-dir>                      # if installed via the one-liner
 # or, from a clone:
 npm run export -- <output-dir>
 # or: tsx src/export-claude-history.ts <output-dir>
@@ -62,7 +73,7 @@ By default it reads Claude Code's history from `~/.claude`. Pass `--claude-dir <
 for a non-standard `CLAUDE_CONFIG_DIR`, a backup, or another machine's history:
 
 ```bash
-cca-export <output-dir> --claude-dir /path/to/.claude
+cca export <output-dir> --claude-dir /path/to/.claude
 ```
 
 Output structure:
@@ -88,20 +99,47 @@ and for tooling that wants the raw metrics without parsing the markdown.
 ## 2. Generate the HTML viewer
 
 ```bash
-cca-generate-html <input.md | input-dir> [output.html | output-dir]  # if installed via the one-liner
+cca generate-html <input.md | input-dir> [output.html | output-dir]  # if installed via the one-liner
 # or, from a clone:
 npm run view -- <input.md | input-dir> [output.html | output-dir]
 # or: tsx src/generate-html.ts <input.md | input-dir> [output.html | output-dir]
 ```
 
-Each markdown input produces **two** files, side by side:
+Each markdown input produces up to **three** files, side by side:
 
 - `<name>-discussion.html` — the three-column interactive viewer (always written)
 - `<name>-dashboard.html` — the metrics dashboard (written whenever the source `.md`
   carries an embedded `cca:data` block, or a `<name>.json` sidecar sits next to it)
+- `<name>-simulation.html` — the **token/cost/time simulator** (written under the same
+  condition as the dashboard; see below)
 
-If the input is a single `.md` file and the output argument is omitted, the two files
-default to `<input_basename>-discussion.html` and `<input_basename>-dashboard.html`.
+If the input is a single `.md` file and the output argument is omitted, the files
+default to `<input_basename>-discussion.html`, `-dashboard.html` and `-simulation.html`.
+
+### Simulation page
+
+The simulator is a **learning tool**: a linear transcript of the conversation with a
+checkbox on every tool call. Unchecking a tool simulates never having run it — its
+result stops riding along in every later prompt — and a sticky side panel recomputes
+the session's **cost, peak context and duration** live in the browser.
+
+It is an *accounting* model over the real token usage, not a counterfactual: it assumes
+the same conversation trajectory, only with cheaper context, and offers no advice.
+A tool's context weight is derived by differencing the context size of consecutive API
+calls (`input + cache_creation + cache_read`) and subtracting the known output tokens;
+that weight is then removed from every later call — split across each call's
+cache-write / cache-read in proportion to its actual `cw:cr`, so a cache-expiry re-write
+credits the full 1.25× write, a normal cached read credits 0.1×. Cost is priced
+identically to the dashboard.
+
+A lone tool in a turn takes that turn's exact differenced weight. Tools that share a
+turn are each sized from their own result length (via a chars→tokens ratio calibrated
+from the session's single-tool turns), marked with a `*`. When a turn grows by more than
+its tool *results* carry — a **Skill** loading its body, a **Task/Agent** subagent
+spawn, an **MCP** call returning a large resource — that unexplained residual is
+attributed to the injector call, so unchecking it removes the context it actually caused
+(e.g. a `/graphify` skill load that added ~200k tokens). Growth with no identifiable
+injector (a pasted message, say) is left unattributed rather than guessed.
 
 If the input is a **directory**, every `.md`/`.markdown` file inside is converted
 **recursively**, writing both files next to each source — or mirroring the directory tree
@@ -112,8 +150,8 @@ the output root (see below).
 
 Converting a directory writes an `index.html` at the output root listing every
 conversation in one table — **title, cost, max context, duration, and change**
-(lines added/removed) — with links to each conversation's discussion and dashboard
-reports.
+(lines added/removed) — with links to each conversation's discussion, dashboard and
+simulation reports.
 
 Each row has a checkbox (ticked by default). A sticky totals bar live-sums the
 selection so several sessions on one feature can be analyzed as a group: cost,

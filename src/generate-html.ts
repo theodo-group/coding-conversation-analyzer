@@ -1,10 +1,13 @@
 #!/usr/bin/env tsx
-// generate-html v2.1 – Convert Claude Code conversation markdown exports to interactive HTML
+// generate-html — convert Claude Code conversation markdown exports to interactive HTML.
+// Version is unified project-wide; see package.json and CLAUDE.md → Versioning.
 
 import * as fs from "fs";
 import * as path from "path";
 import { generateDashboardHtml, summarizeSidecar } from "./generate-dashboard.ts";
+import { generateSimulationHtml } from "./generate-simulation.ts";
 import { generateIndexHtml, type IndexEntry } from "./generate-index.ts";
+import { handleVersionFlag } from "./version.ts";
 
 // --- Types ---
 
@@ -99,10 +102,12 @@ function teammateAccent(color: string | undefined): string {
 // --- Embedded metadata ---
 
 // The exporter appends the dashboard sidecar to the .md as a trailing hidden
-// HTML comment (`<!-- cca:data v=1\n{…}\n-->`), making the .md self-contained
-// for both the discussion and dashboard views. This matches that block so it
-// can be both stripped before parsing the conversation and parsed for metrics.
-const DATA_BLOCK_RE = /\n*<!-- cca:data v=\d+\n([\s\S]*?)\n-->\s*$/;
+// HTML comment (`<!-- cca:data v=1 tool=1.0.0\n{…}\n-->`), making the .md
+// self-contained for both the discussion and dashboard views. This matches that
+// block so it can be both stripped before parsing the conversation and parsed
+// for metrics. The marker line may carry extra ` key=value` tokens (e.g.
+// `tool=`) after the version, so anything up to the newline is tolerated.
+const DATA_BLOCK_RE = /\n*<!-- cca:data v=\d+[^\n]*\n([\s\S]*?)\n-->\s*$/;
 
 // Remove the trailing embedded data block so it never leaks into the parsed
 // conversation body.
@@ -883,6 +888,7 @@ function toggleTurn(n) {
 interface FileResult {
   discussionPath: string;
   dashboardPath: string | null;
+  simulationPath: string | null;
   title: string;
   metrics: ReturnType<typeof summarizeSidecar> | null;
 }
@@ -904,8 +910,9 @@ function titleFromMarkdown(mdPath: string): string {
 
 // Renders the discussion viewer to `<base>-discussion.html`, and — when a
 // sidecar `<name>.json` sits next to the source markdown (written by
-// cca-export) — also renders the dashboard report to `<base>-dashboard.html`.
-// `outputPath` is the base `.html` path; the two suffixes are derived from it.
+// cca-export) — also renders the dashboard report to `<base>-dashboard.html`
+// and the token/cost/time simulation to `<base>-simulation.html`.
+// `outputPath` is the base `.html` path; the suffixes are derived from it.
 // Returns the paths, title and headline metrics so the caller can build an
 // index across many conversions.
 function convertFile(inputPath: string, outputPath: string): FileResult {
@@ -918,6 +925,7 @@ function convertFile(inputPath: string, outputPath: string): FileResult {
   const result: FileResult = {
     discussionPath,
     dashboardPath: null,
+    simulationPath: null,
     title: titleFromMarkdown(inputPath),
     metrics: null,
   };
@@ -947,6 +955,15 @@ function convertFile(inputPath: string, outputPath: string): FileResult {
       if (result.metrics.title) result.title = result.metrics.title;
     } catch (e) {
       console.error(`  Dashboard error (${source}): ${e}`);
+    }
+
+    const simulationPath = outputPath.replace(/\.html$/i, "-simulation.html");
+    try {
+      fs.writeFileSync(simulationPath, generateSimulationHtml(sidecar), "utf-8");
+      console.log(`Generated: ${path.resolve(simulationPath)}`);
+      result.simulationPath = simulationPath;
+    } catch (e) {
+      console.error(`  Simulation error (${source}): ${e}`);
     }
   }
   return result;
@@ -985,6 +1002,7 @@ function findMarkdownFiles(dir: string, base = dir): string[] {
 }
 
 function main() {
+  handleVersionFlag(process.argv.slice(2), "cca-generate-html");
   if (process.argv.length < 3) {
     console.error(`Usage: ${process.argv[1]} <input.md | input-dir> [output.html | output-dir]`);
     process.exit(1);
@@ -1021,6 +1039,7 @@ function main() {
       title: r.title,
       discussionHref: relHref(r.discussionPath),
       dashboardHref: r.dashboardPath ? relHref(r.dashboardPath) : null,
+      simulationHref: r.simulationPath ? relHref(r.simulationPath) : null,
       totalCost: r.metrics?.totalCost ?? 0,
       peakContext: r.metrics?.peakContext ?? 0,
       durationSeconds: r.metrics?.durationSeconds ?? 0,

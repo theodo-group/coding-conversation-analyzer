@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+#
+# cca — unified CLI for coding-conversation-analyzer.
+#
+#   cca export <target-dir> [--full] [--claude-dir <path>]   Export conversations to markdown
+#   cca generate-html <input> [output]                       Render a markdown export to HTML
+#   cca update                                               Update to the latest version
+#   cca --version                                            Print the version
+#   cca --help                                               Show this help
+#
+# Version is unified project-wide; see package.json and CLAUDE.md → Versioning.
+
+set -euo pipefail
+
+# Where `cca update` pulls from (same defaults as install.sh; override via env).
+REPO="${REPO:-theodo-group/coding-conversation-analyzer}"
+BRANCH="${BRANCH:-main}"
+
+# Resolve the repo root. The installed wrapper exports CCA_HOME; when run
+# directly this script lives at <root>/bin/cca, so resolve from its own path
+# (following symlinks).
+if [ -n "${CCA_HOME:-}" ]; then
+  ROOT="$CCA_HOME"
+else
+  source="${BASH_SOURCE[0]}"
+  while [ -h "$source" ]; do
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    [ "${source#/}" = "$source" ] && source="$dir/$source"
+  done
+  ROOT="$(cd -P "$(dirname "$source")/.." >/dev/null 2>&1 && pwd)"
+fi
+
+# Where the installed CLI wrappers live (needed so `cca update` refreshes them
+# in place); baked in by the installer, else default.
+BIN_DIR="${CCA_BIN_DIR:-${BIN_DIR:-$HOME/.local/bin}}"
+
+TSX="$ROOT/node_modules/.bin/tsx"
+
+info() { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
+err()  { printf '\033[1;31mError:\033[0m %s\n' "$1" >&2; exit 1; }
+
+version() { node -p "require('$ROOT/package.json').version" 2>/dev/null || echo "unknown"; }
+
+usage() {
+  cat <<EOF
+cca $(version) — coding-conversation-analyzer
+
+Usage:
+  cca export <target-dir> [--full] [--claude-dir <path>]   Export conversations to markdown
+  cca generate-html <input> [output]                       Render a markdown export to HTML
+  cca update                                               Update to the latest version
+  cca --version                                            Print the version
+  cca --help                                               Show this help
+EOF
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  export)
+    shift
+    exec "$TSX" "$ROOT/src/export-claude-history.ts" "$@"
+    ;;
+  generate-html)
+    shift
+    exec "$TSX" "$ROOT/src/generate-html.ts" "$@"
+    ;;
+  update)
+    shift
+    command -v curl >/dev/null 2>&1 || err "curl is required for 'cca update'."
+    info "Updating from $REPO ($BRANCH)…"
+    # Re-run the installer against this install. It short-circuits when the
+    # version is already up to date (set FORCE=1 to reinstall anyway).
+    curl -fsSL "https://raw.githubusercontent.com/$REPO/$BRANCH/install.sh" \
+      | INSTALL_DIR="$ROOT" BIN_DIR="$BIN_DIR" REPO="$REPO" BRANCH="$BRANCH" bash
+    ;;
+  -v|--version|version)
+    version
+    ;;
+  ""|-h|--help|help)
+    usage
+    ;;
+  *)
+    printf 'cca: unknown command %q\n\n' "$cmd" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

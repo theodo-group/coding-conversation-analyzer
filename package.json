@@ -4,6 +4,7 @@
   "description": "Export Claude Code conversations to markdown and view them in an interactive HTML analyzer.",
   "type": "module",
   "bin": {
+    "cca": "bin/cca",
     "cca-export": "src/export-claude-history.ts",
     "cca-generate-html": "src/generate-html.ts"
   },

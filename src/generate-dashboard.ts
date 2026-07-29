@@ -218,8 +218,19 @@ interface CostContext {
 
 function computeCost(s: Sidecar): CostContext {
   const modelSet = new Set<string>();
+  // One API response is emitted as several timeline points sharing the *same*
+  // `usage` (the assistant text point plus each of its tool_use siblings).
+  // Collapse consecutive-equal usage so each response is priced once — filtering
+  // by `usage` alone counts a text+tools turn multiple times.
+  let prevKey: string | null = null;
   const usagePoints = s.timeline
     .filter((p): p is TimelinePoint & { usage: Usage; model: string } => !!p.usage)
+    .filter((p) => {
+      const key = `${p.usage.in},${p.usage.out},${p.usage.cw},${p.usage.cr}`;
+      if (key === prevKey) return false;
+      prevKey = key;
+      return true;
+    })
     .map((p) => ({ ...p, model: p.model || "claude-opus-4-8" }))
     .sort((a, b) => a.t - b.t);
 
