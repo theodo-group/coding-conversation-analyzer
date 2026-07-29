@@ -1,0 +1,93 @@
+src/version.ts
+  s_c3711e9ccc0399::t_bb2e335cd7bbf2 1-33
+src/generate-dashboard.ts
+  s_2d97fa1af0c8e7::t_6fba7d9fd33445 221-225,228-233
+src/generate-index.ts
+  s_2d97fa1af0c8e7::t_e0d6ef29aef162 21
+  s_2d97fa1af0c8e7::t_d95356805e7bbb 66-67
+install.sh
+  s_c3711e9ccc0399::t_c0704530bfc05a 116-119
+  s_c3711e9ccc0399::t_25b5f16d74f241 36-58
+  s_c3711e9ccc0399::t_9b8eae54fb2b82 132
+  s_c3711e9ccc0399::t_49ab31ca6e10ce 13,16-17
+  s_c3711e9ccc0399::t_82df76a6924924 12,14-15
+  s_c3711e9ccc0399::t_4df7f5834d7d68 95-107,111-112,120
+package.json
+  s_c3711e9ccc0399::t_92d30085024732 7
+src/generate-simulation.ts
+  s_2d97fa1af0c8e7::t_9b6d70cc4c9799 347,350,377-408,410
+  s_2d97fa1af0c8e7::t_44ca9a5b756085 158
+  s_2d97fa1af0c8e7::t_59e6c2d8a0b6f8 351-352,362-363,365,368-369,375-376
+  s_2d97fa1af0c8e7::t_4fd8d11058e1a0 483-484,488
+  s_2d97fa1af0c8e7::t_20f9b2e422c166 608
+  s_2d97fa1af0c8e7::t_5efa2008e2faa3 708-710,717-721
+  s_2d97fa1af0c8e7::t_1a3edc1305da26 485-486
+  s_2d97fa1af0c8e7::t_0735f8a19e661e 1-36,38-157,159-175,194-196,204,206,221-244,248,256,259,263-265,269-274,305-310,312-318,320,332-346,348-349,409,411-442,444-482,487,489-505,507-607,609-651,658-707,712-716,722-847
+  s_2d97fa1af0c8e7::t_87cdcf4769fc5b 258,260-262,266-268,311,321-324,331
+  s_2d97fa1af0c8e7::t_7da4a2137a247b 245-247,249-255,257
+  s_2d97fa1af0c8e7::t_c6e18f168e15d6 711
+  s_2d97fa1af0c8e7::t_7b47f402102d6d 652-657
+  s_2d97fa1af0c8e7::t_ecb1e53da2fea9 275-304,319,325-330
+  s_2d97fa1af0c8e7::t_3ab8af8532a69a 353-361,364,366-367,370-374
+  s_2d97fa1af0c8e7::t_bad6130f158071 443
+  s_2d97fa1af0c8e7::t_f974a71b7f20fc 197-203,205,207-220
+  s_2d97fa1af0c8e7::t_8f3c8345ed8139 506
+  s_2d97fa1af0c8e7::t_df07a190cfe493 37
+  s_2d97fa1af0c8e7::t_46a23e132db29b 176-193
+src/generate-html.ts
+  s_2d97fa1af0c8e7::t_5ca18aa4e521c4 913-915
+  s_c3711e9ccc0399::t_b442cde59e133b 2-3,10
+  s_2d97fa1af0c8e7::t_57ab742fb279a6 8
+  s_2d97fa1af0c8e7::t_f77b8d6eb52d12 959-967
+  s_c3711e9ccc0399::t_ad025aa616392c 105-110
+  s_c3711e9ccc0399::t_543a431667853a 1005
+  s_2d97fa1af0c8e7::t_556528307d2050 891
+  s_2d97fa1af0c8e7::t_fc783056d6efb1 928
+  s_2d97fa1af0c8e7::t_a523286bcd328a 1042
+CLAUDE.md
+  s_c3711e9ccc0399::t_da8e593f0d7945 8-19
+  s_c3711e9ccc0399::t_159d3937bfb2c5 1-7,20-30,33-60
+  s_c3711e9ccc0399::t_9fa65afed42b49 31-32
+bin/cca
+  s_c3711e9ccc0399::t_710d0c05d8bdf7 1-88
+README.md
+  s_2d97fa1af0c8e7::t_568950f2b9ac04 108,113-127
+  s_c3711e9ccc0399::t_18e03791b5aa8a 61
+  s_c3711e9ccc0399::t_9cf5333c24b9b9 102
+  s_c3711e9ccc0399::t_b8bdc5283c48b0 25-36
+  s_2d97fa1af0c8e7::t_f16ec41d31e005 153-154
+  s_2d97fa1af0c8e7::t_e6ad539881cf7d 10-12
+  s_c3711e9ccc0399::t_71a749922e1a0a 76
+  s_2d97fa1af0c8e7::t_53bac123e5644b 128-142
+src/export-claude-history.ts
+  s_c3711e9ccc0399::t_633bc5f8e29a84 24
+  s_c3711e9ccc0399::t_a96944fcc46743 51
+  s_2d97fa1af0c8e7::t_67378133639b9d 125-126
+  s_c3711e9ccc0399::t_7b4d704b614020 2-3,9
+  s_c3711e9ccc0399::t_ba1db56c47efa4 750-752
+  s_2d97fa1af0c8e7::t_1e453e3336fa23 1166-1179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "6c313878fa43b0a4b6d43826e8f36fff0f033948",
+  "prompts": {},
+  "sessions": {
+    "s_2d97fa1af0c8e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d514742-c20a-4431-8bed-4a24f4d368db",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    },
+    "s_c3711e9ccc0399": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aa0b6b82-dfb6-4a04-982d-4449d2565fa0",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
