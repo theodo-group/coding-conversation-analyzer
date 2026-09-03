@@ -1004,7 +1004,7 @@ function findMarkdownFiles(dir: string, base = dir): string[] {
 function main() {
   handleVersionFlag(process.argv.slice(2), "cca-generate-html");
   if (process.argv.length < 3) {
-    console.error(`Usage: ${process.argv[1]} <input.md | input-dir> [output.html | output-dir]`);
+    console.error("Usage: cca-generate-html <input.md | input-dir> [output.html | output-dir]");
     process.exit(1);
   }
 

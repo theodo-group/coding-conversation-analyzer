@@ -3,15 +3,16 @@
 Export [Claude Code](https://claude.com/claude-code) conversations from `~/.claude/projects/`
 into readable markdown, then turn them into an interactive HTML viewer for analysis.
 
-Two standalone TypeScript tools, run with [`tsx`](https://github.com/privatenumber/tsx):
+Two steps, both run through the **`cca`** CLI (see [Install](#install)):
 
-1. **`export-claude-history`** — dumps conversations to markdown (plus a structured
+1. **`cca export`** — dumps conversations to markdown (plus a structured
    JSON sidecar), organized by git branch.
-2. **`generate-html`** — converts a markdown export into three reports: a three-column
+2. **`cca generate-html`** — converts a markdown export into three reports: a three-column
    interactive **discussion viewer**, a metrics **dashboard**, and a token/cost/time
    **simulation** page.
 
-Both are self-contained scripts using only Node built-ins.
+Under the hood these are two standalone, self-contained TypeScript scripts using only
+Node built-ins, run with [`tsx`](https://github.com/privatenumber/tsx) — no build step.
 
 ## Install
 
@@ -67,6 +68,12 @@ npm run export -- <output-dir>
 Exports conversations including tool results, thinking blocks, subagent conversations,
 actual Edit diffs, and YAML frontmatter. Incremental — re-running only exports new or
 changed conversations.
+
+Long tool results are truncated by default. Pass `--full` to export them in full:
+
+```bash
+cca export <output-dir> --full
+```
 
 By default it reads Claude Code's history from `~/.claude`. Pass `--claude-dir <path>`
 (or `--claude-dir=<path>`, `~` is expanded) to read from a different location — useful

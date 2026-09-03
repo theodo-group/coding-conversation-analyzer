@@ -48,7 +48,7 @@ const claudeProjectPath = path.join(claudeDir, "projects", projectRoot.replace(/
 const targetDirArg = positional[0];
 
 if (!targetDirArg) {
-  console.error("Usage: export-claude-history <target-dir> [--full] [--claude-dir <path>] [--version]");
+  console.error("Usage: cca-export <target-dir> [--full] [--claude-dir <path>] [--version]");
   process.exit(1);
 }
 
