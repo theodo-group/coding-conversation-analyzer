@@ -1,0 +1,19 @@
+README.md
+  s_477cf3a5afe9c1::t_e48f684cbeff13 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9e8f2371b6b023df9cacde89c31df46f83cf0f1f",
+  "prompts": {},
+  "sessions": {
+    "s_477cf3a5afe9c1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89b58586-02fd-4417-9a4e-dbae0c03fc29",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
