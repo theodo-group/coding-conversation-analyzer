@@ -1,0 +1,19 @@
+src/generate-dashboard.ts
+  s_0b3ee0e48245f9::t_87acf34cc29241 667
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4937d6d09da2722780b61d55710a02b84d9315ba",
+  "prompts": {},
+  "sessions": {
+    "s_0b3ee0e48245f9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ecac6c87-68de-42bf-9a00-74b911124de0",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
