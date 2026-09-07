@@ -1,5 +1,5 @@
 {
-  "name": "claude-conversation-analyzer",
+  "name": "coding-conversation-analyzer",
   "version": "1.2.0",
   "description": "Export Claude Code and OpenCode conversations to markdown and view them in an interactive HTML analyzer.",
   "type": "module",
