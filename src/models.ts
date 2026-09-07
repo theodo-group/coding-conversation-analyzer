@@ -33,7 +33,11 @@ export interface ModelEntry {
 
 export type ModelCatalog = Record<string, ModelEntry>;
 
-// Anthropic, copied from models.dev.
+// Anthropic and xAI, copied from models.dev. Cursor's own house models
+// (`composer-*`, `auto`) are deliberately absent: their prices are not
+// published anywhere this catalog can cite, and a Cursor export never renders a
+// cost, so an invented entry would buy nothing and could mislead a reader who
+// found it here. They fall through to `resolveModel`'s default.
 export const MODELS: ModelCatalog = {
   "claude-opus-5": {
     id: "claude-opus-5",
@@ -133,6 +137,35 @@ export const MODELS: ModelCatalog = {
     limit: { context: 1_000_000, output: 128_000 },
     cost: { input: 10, output: 50, cache_read: 1, cache_write: 12.5 },
   },
+  // xAI, copied from models.dev. Cursor defaults to a Grok, so these are the
+  // entries a Cursor export needs — for the context-window ceiling and a stable
+  // colour, since its cost panels are suppressed (Cursor records no usage).
+  // models.dev publishes no cache-write price for xAI: cached input is billed at
+  // `cache_read` and writes are not charged separately, so the field is a real
+  // zero rather than a derived guess. `limit.context` is xAI's own maximum;
+  // Cursor caps it per session and records that cap in the export's
+  // `contextBreakdown.maxTokens`, which the reports prefer where present.
+  "grok-4.6": {
+    id: "grok-4.6",
+    name: "Grok 4.6",
+    family: "grok",
+    limit: { context: 500_000, output: 500_000 },
+    cost: { input: 2, output: 6, cache_read: 0.5, cache_write: 0 },
+  },
+  "grok-4.5": {
+    id: "grok-4.5",
+    name: "Grok 4.5",
+    family: "grok",
+    limit: { context: 500_000, output: 500_000 },
+    cost: { input: 2, output: 6, cache_read: 0.3, cache_write: 0 },
+  },
+  "grok-4.3": {
+    id: "grok-4.3",
+    name: "Grok 4.3",
+    family: "grok",
+    limit: { context: 1_000_000, output: 30_000 },
+    cost: { input: 1.25, output: 2.5, cache_read: 0.2, cache_write: 0 },
+  },
   // Local-only entry: Claude Code writes this literal model id for messages it
   // synthesises itself (no API call, no charge).
   "<synthetic>": {
@@ -154,6 +187,10 @@ const FAMILY_FALLBACK: Array<{ match: string; id: string }> = [
   { match: "opus", id: "claude-opus-5" },
   { match: "sonnet", id: "claude-sonnet-5" },
   { match: "haiku", id: "claude-haiku-4-5" },
+  // A Grok variant the catalog hasn't got should land on a Grok, not on the
+  // Anthropic default — otherwise a Cursor session's context axis is drawn
+  // against a 1M ceiling it never had.
+  { match: "grok", id: "grok-4.6" },
 ];
 
 // Merge per-export catalog entries (other providers, from the sidecar) over the

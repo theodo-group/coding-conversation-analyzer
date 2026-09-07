@@ -55,10 +55,12 @@ Usage:
 
 Export options:
   --full                          Do not truncate long messages
-  --source claude|opencode|auto   Which agent's history to read. Default auto:
+  --source claude|opencode|cursor|auto
+                                  Which agent's history to read. Default auto:
                                   every source with sessions for this project
   --claude-dir <path>             Override ~/.claude
   --opencode-dir <path>           Override \$XDG_DATA_HOME/opencode
+  --cursor-dir <path>             Override the Cursor application-support dir
 EOF
 }
 

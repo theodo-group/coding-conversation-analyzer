@@ -450,7 +450,7 @@ function renderRow(r: Row): string {
 
 export function generateSimulationHtml(s: Sidecar): string {
   const sim = buildSim(s);
-  const title = (s.title || "").trim() || "Claude conversation";
+  const title = (s.title || "").trim() || "Untitled conversation";
   const removableCount = sim.tools.filter((t) => t.weight !== null).length;
 
   const rowsHtml = sim.rows.map(renderRow).join("\n");
@@ -578,7 +578,7 @@ body {
     riding along in every later prompt, so the panel on the right recomputes the
     session's cost, peak context and duration. This is an accounting model over the
     real token usage — it assumes the same conversation, only cheaper; it does not
-    predict how Claude would have behaved without the result. A lone tool in a turn
+    predict how the agent would have behaved without the result. A lone tool in a turn
     gets that turn's exact context growth; a
     <span class="r-approx">tokens*</span> marks a tool that shared its turn with
     others — it is sized from its own result length, so the figure is an estimate,

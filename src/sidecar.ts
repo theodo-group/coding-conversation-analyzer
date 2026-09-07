@@ -7,7 +7,7 @@
 // live in their own modules and are imported, not redeclared.
 
 import type { ModelEntry } from "./models.ts";
-import type { SetupItem, Usage } from "./sources/types.ts";
+import type { ContextBreakdown, SetupItem, SourceId, Usage } from "./sources/types.ts";
 
 // A single event on the message timeline. `t` is seconds from session start.
 export interface TimelinePoint {
@@ -110,7 +110,16 @@ export interface Sidecar {
   };
   // Which agent produced the conversation. Absent means Claude Code, so
   // sidecars written before OpenCode support still read correctly.
-  source?: "claude-code" | "opencode";
+  source?: SourceId;
+  // False when the source records no token usage at all (Cursor). Absent means
+  // the usage on the timeline is real — which is how every sidecar written
+  // before Cursor support reads. Readers must render cost and context as
+  // unavailable rather than as zero when this is false; see the disclaimer in
+  // the dashboard and the exported markdown.
+  usageAvailable?: boolean;
+  // The source's own estimate of what filled the context window, by category.
+  // Shown in place of the cost/context chart when `usageAvailable` is false.
+  contextBreakdown?: ContextBreakdown;
   // Price/limit entries for models the built-in catalog doesn't know, keyed
   // exactly as `TimelinePoint.model`. models.dev shape, verbatim.
   models?: Record<string, ModelEntry>;

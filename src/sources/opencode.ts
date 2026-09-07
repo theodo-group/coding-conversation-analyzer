@@ -16,9 +16,9 @@ import { execSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { createRequire } from "node:module";
 import type { DatabaseSync } from "node:sqlite";
 import { MODELS, type ModelCatalog, type ModelEntry } from "../models.ts";
+import { openDatabase } from "./sqlite.ts";
 import type {
   NeutralBlock,
   NeutralConversation,
@@ -229,26 +229,6 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
 
 function expandHome(p: string): string {
   return path.resolve(p.replace(/^~(?=$|\/)/, os.homedir()));
-}
-
-// `node:sqlite` is loaded lazily, and required rather than imported, for two
-// reasons: a Claude-only export shouldn't pay for it at all, and requiring it
-// behind a temporary warning filter keeps its "SQLite is an experimental
-// feature" notice out of the CLI's output without muting warnings globally.
-const requireNode = createRequire(import.meta.url);
-
-function openDatabase(file: string): DatabaseSync {
-  const prev = process.emitWarning;
-  process.emitWarning = ((warning: unknown, ...rest: unknown[]) => {
-    if (String(warning).includes("SQLite is an experimental feature")) return;
-    (prev as (...a: unknown[]) => void).call(process, warning, ...rest);
-  }) as typeof process.emitWarning;
-  try {
-    const sqlite = requireNode("node:sqlite") as typeof import("node:sqlite");
-    return new sqlite.DatabaseSync(file, { readOnly: true });
-  } finally {
-    process.emitWarning = prev;
-  }
 }
 
 export class OpenCodeAdapter implements SourceAdapter {

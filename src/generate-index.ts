@@ -27,6 +27,12 @@ export interface IndexEntry {
   linesAdded: number;
   linesRemoved: number;
   hasMetrics: boolean;
+  // False when the source recorded no token usage (Cursor). The row still
+  // carries duration and line counts — those are real — but its cost cell
+  // reads `n/a` and is left out of the selected total, because folding an
+  // unknown in as zero would understate the group and rank the row as the
+  // cheapest session in a mixed-source index.
+  hasCost?: boolean;
   kind?: "subagent" | "workflow";
   children?: IndexEntry[];
 }
@@ -43,13 +49,18 @@ function row(e: IndexEntry, isChild = false): string {
   // Data attributes carry the raw numbers so the client can sum/max the
   // selected rows without re-parsing the formatted cells. Children have no
   // checkbox — their usage is already part of the parent's metrics.
+  const noCost = e.hasMetrics && e.hasCost === false;
   const cb = isChild
     ? `<span class="branch" aria-hidden="true">└</span>`
     : e.hasMetrics
-      ? `<input type="checkbox" class="pick" checked data-cost="${e.totalCost}" data-ctx="${e.peakContext}" data-dur="${e.durationSeconds}" data-add="${e.linesAdded}" data-del="${e.linesRemoved}">`
+      ? `<input type="checkbox" class="pick" checked data-cost="${e.totalCost}" data-ctx="${e.peakContext}" data-dur="${e.durationSeconds}" data-add="${e.linesAdded}" data-del="${e.linesRemoved}"${noCost ? ' data-nocost="1"' : ""}>`
       : `<input type="checkbox" class="pick" disabled title="No metrics — sidecar JSON missing">`;
 
   const num = (html: string) => (e.hasMetrics ? html : `<span class="dash">—</span>`);
+  // `n/a`, never `$0.00`: the session was not free, its cost was never recorded.
+  const cost = noCost
+    ? `<span class="na" title="This agent does not record token usage, so cost cannot be computed.">n/a</span>`
+    : num(fmtMoney(e.totalCost));
   const change = e.hasMetrics
     ? `<span class="add">+${e.linesAdded}</span> <span class="del">−${e.linesRemoved}</span>`
     : `<span class="dash">—</span>`;
@@ -59,7 +70,7 @@ function row(e: IndexEntry, isChild = false): string {
   return `<tr${isChild ? ' class="child"' : ""}>
   <td class="c-pick">${cb}</td>
   <td class="c-title">${badge}<span class="title" title="${escape(e.title)}">${escape(e.title)}</span><div class="links">${links}</div></td>
-  <td class="c-num">${num(fmtMoney(e.totalCost))}</td>
+  <td class="c-num">${cost}</td>
   <td class="c-num">${num(fmtTokens(e.peakContext))}</td>
   <td class="c-num">${num(fmtDuration(e.durationSeconds))}</td>
   <td class="c-num c-change">${change}</td>
@@ -75,6 +86,7 @@ function rowsFor(e: IndexEntry, isChild = false): string[] {
 
 export function generateIndexHtml(entries: IndexEntry[], heading = "Conversations"): string {
   const withMetrics = entries.filter((e) => e.hasMetrics).length;
+  const noCost = entries.filter((e) => e.hasMetrics && e.hasCost === false).length;
   const rows = entries.flatMap((e) => rowsFor(e)).join("\n");
 
   return `<!DOCTYPE html>
@@ -137,6 +149,10 @@ tbody tr:hover { background: var(--surface-2); }
 thead .c-num { text-align: right; }
 .c-change .add { color: var(--cost); } .c-change .del { color: #f85149; }
 .dash { color: var(--text-muted); }
+/* A cost that was never recorded, as opposed to one that is zero. */
+.na { color: var(--text-muted); font-style: italic; cursor: help; }
+.tt-note { font-size: 11px; color: var(--text-muted); flex-basis: 100%; }
+.tt-note:empty { display: none; }
 .title { display: block; font-weight: 600; max-width: 56ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Nested subagent / workflow rows, indented under their main discussion. */
 .child td { background: rgba(88, 166, 255, 0.03); }
@@ -175,6 +191,7 @@ input[type=checkbox]:disabled { cursor: default; opacity: 0.4; }
     <div class="spacer"></div>
     <button type="button" id="btn-all">Select all</button>
     <button type="button" id="btn-none">Clear</button>
+    <div class="tt-note" id="cost-note"></div>
   </div>
 
   <div class="card">
@@ -199,6 +216,7 @@ input[type=checkbox]:disabled { cursor: default; opacity: 0.4; }
     Tick rows to build a group (e.g. all sessions for one feature): cost, duration and change are summed;
     context shows the peak reached across the selection. Cost is computed from token usage — see each dashboard for the breakdown.
     Rows without a checkbox had no <code>.json</code> sidecar next to their markdown, so no metrics or dashboard were generated.
+    ${noCost ? `A cost of <span class="na">n/a</span> means the coding agent that produced that session records no token usage on disk — the session was not free, its cost was never measured — so it is left out of the selected total rather than counted as zero.` : ""}
   </div>
 </main>
 
@@ -222,11 +240,13 @@ input[type=checkbox]:disabled { cursor: default; opacity: 0.4; }
   }
 
   function recompute() {
-    var count = 0, cost = 0, ctx = 0, dur = 0, add = 0, del = 0;
+    var count = 0, cost = 0, ctx = 0, dur = 0, add = 0, del = 0, noCost = 0;
     picks.forEach(function (cb) {
       if (!cb.checked) return;
       count++;
-      cost += parseFloat(cb.dataset.cost) || 0;
+      // A session whose agent records no usage contributes its duration and
+      // line counts — those are real — but not a zero cost.
+      if (cb.dataset.nocost) noCost++; else cost += parseFloat(cb.dataset.cost) || 0;
       ctx = Math.max(ctx, parseFloat(cb.dataset.ctx) || 0);
       dur += parseFloat(cb.dataset.dur) || 0;
       add += parseInt(cb.dataset.add, 10) || 0;
@@ -238,6 +258,12 @@ input[type=checkbox]:disabled { cursor: default; opacity: 0.4; }
     document.getElementById('sum-dur').textContent = fmtDuration(dur);
     document.getElementById('sum-change').innerHTML =
       '<span class="add">+' + add + '</span> <span class="del">−' + del + '</span>';
+    var note = document.getElementById('cost-note');
+    if (note) {
+      note.textContent = noCost
+        ? 'Cost excludes ' + noCost + ' selected session(s) whose agent records no token usage.'
+        : '';
+    }
   }
 
   picks.forEach(function (cb) { cb.addEventListener('change', recompute); });

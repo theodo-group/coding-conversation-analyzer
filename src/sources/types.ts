@@ -4,9 +4,13 @@
 // consumed (a chronological list of messages, each holding content blocks), so
 // adding a source means writing a reader, not forking the exporter. Everything
 // source-specific — Claude Code's jsonl line types and snake_case tool inputs,
-// OpenCode's SQLite rows and camelCase ones — is resolved inside the adapter.
+// OpenCode's SQLite rows and camelCase ones, Cursor's fused tool bubbles — is
+// resolved inside the adapter.
 
 import type { ModelCatalog } from "../models.ts";
+
+// Which coding agent produced a conversation.
+export type SourceId = "claude-code" | "opencode" | "cursor";
 
 export interface Usage {
   in: number;
@@ -90,7 +94,7 @@ export interface NeutralSession {
   version: string;
   branch: string;
   branchSource?: "snapshot" | "live-git" | "unknown";
-  source: "claude-code" | "opencode";
+  source: SourceId;
   // A real session title when the source generates one; otherwise absent and
   // the exporter falls back to the first human prompt.
   title?: string;
@@ -106,6 +110,23 @@ export interface NeutralSession {
   // `NeutralMessage.model`. Embedded in the sidecar so reports price correctly
   // without the checked-in catalog having to cover every provider.
   models?: ModelCatalog;
+  // Set to false by a source that records no per-message token usage at all
+  // (Cursor meters server-side and writes zeros to disk). Absent means the
+  // usage on each message is real, which is what every source but Cursor does.
+  // Reports must branch on this rather than rendering the zeros: a $0.00 is a
+  // claim about the session, and it would be the wrong one.
+  usageAvailable?: boolean;
+  // A source's own estimate of what filled the context window, by category.
+  // Cursor records this and no usage; it is what the reports show in the
+  // cost chart's place. Nothing else supplies it.
+  contextBreakdown?: ContextBreakdown;
+}
+
+// Estimated context occupancy by category, as the source computed it.
+export interface ContextBreakdown {
+  usedTokens: number;
+  maxTokens: number;
+  categories: Array<{ id: string; label: string; tokens: number }>;
 }
 
 // One subagent/workflow transcript spawned by a conversation. `group` names the
@@ -123,7 +144,9 @@ export interface NeutralConversation {
 }
 
 export interface SetupItem {
-  kind: "agent" | "skill" | "command" | "plugin";
+  // `rule` is Cursor's `.cursor/rules/*.mdc` — always-on instructions injected
+  // into the system prompt, with no analog in the other sources.
+  kind: "agent" | "skill" | "command" | "plugin" | "rule";
   name: string;
   description: string;
 }
@@ -138,7 +161,7 @@ export interface SourceSessionRef {
 }
 
 export interface SourceAdapter {
-  readonly source: "claude-code" | "opencode";
+  readonly source: SourceId;
   // Human-readable description of where this adapter is reading from.
   readonly origin: string;
   // Sessions this source holds for the current project root.

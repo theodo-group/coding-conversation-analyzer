@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-// generate-html — convert Claude Code conversation markdown exports to interactive HTML.
+// generate-html — convert coding-agent conversation markdown exports to interactive HTML.
 // Version is unified project-wide; see package.json and CLAUDE.md → Versioning.
 
 import * as fs from "fs";
@@ -8,6 +8,7 @@ import { generateDashboardHtml, summarizeSidecar } from "./generate-dashboard.ts
 import { generateSimulationHtml } from "./generate-simulation.ts";
 import { generateIndexHtml, type IndexEntry } from "./generate-index.ts";
 import { escape } from "./html/format.ts";
+import { noUsageBody, noUsageHeadline } from "./no-usage.ts";
 import type { Sidecar } from "./sidecar.ts";
 import { handleVersionFlag } from "./version.ts";
 
@@ -549,6 +550,10 @@ function generateHtml(mdPath: string): string {
   };
   const FM_ORDER = ["branch", "started", "ended", "duration", "uuid"];
   let fmHtml = "";
+  // `tokens: unavailable` is the machine-readable flag the exporter writes for a
+  // source that records no token usage. Reading it here rather than the sidecar
+  // keeps the banner working for a .md carried on its own.
+  let noUsageHtml = "";
   if (frontmatter.raw) {
     const map: Record<string, string> = {};
     for (const line of frontmatter.raw.split("\n")) {
@@ -562,6 +567,16 @@ function generateHtml(mdPath: string): string {
         return `<span class="meta-field"><span class="mk">${escape(FM_LABELS[k]!)}</span><span class="mv">${escape(v)}</span></span>`;
       })
       .join("");
+    if (map["tokens"] === "unavailable") {
+      // The per-card context badges come from the exporter's `<!--cca-ctx:N-->`
+      // markers, which it only writes for a non-zero window — so a source with
+      // no usage emits none, and no badge can render as `0`. Nothing to
+      // suppress, then; what is needed is saying why the column is bare.
+      const src = map["source"] as "cursor" | undefined;
+      noUsageHtml =
+        `<div class="banner"><strong>${escape(noUsageHeadline(src))}</strong> ` +
+        `${escape(noUsageBody(src))} The context badge each message would carry is absent for the same reason.</div>`;
+    }
   }
 
   return `<!DOCTYPE html>
@@ -569,7 +584,7 @@ function generateHtml(mdPath: string): string {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Claude Conversation Viewer</title>
+<title>Coding Conversation Analyzer</title>
 <style>
 :root {
   --bg: #0d1117;
@@ -637,6 +652,17 @@ body {
    column headers stay close to the content; title + controls remain. */
 .app-header.condensed .topbar { padding-top: 4px; padding-bottom: 4px; }
 .app-header.condensed .meta { max-height: 0; opacity: 0; margin: 0; }
+
+/* Provenance note for a source that records no token usage. Neutral chrome —
+   this states what the source stored, it is not a warning. */
+.banner {
+  flex-basis: 100%; font-size: 12px; line-height: 1.45; color: var(--text-muted);
+  background: var(--bg); border: 1px solid var(--border);
+  border-left: 3px solid var(--assistant-accent);
+  border-radius: 6px; padding: 7px 10px; max-width: 120ch;
+}
+.banner strong { color: var(--text); }
+.app-header.condensed .banner { display: none; }
 
 /* Column headers — also act as the per-column collapse toggles, so the
    topbar no longer needs separate per-column buttons. */
@@ -822,13 +848,14 @@ body {
 
 <header class="app-header" id="appHeader">
   <div class="topbar">
-    <h1>Claude Conversation Viewer</h1>
+    <h1>Coding Conversation Analyzer</h1>
     <div class="controls">
       <button onclick="collapseAll()">Collapse All</button>
       <button onclick="expandAll()">Expand All</button>
       <button onclick="toggleToolResults()">Toggle Tool Results</button>
     </div>
     <div class="meta">${fmHtml}</div>
+    ${noUsageHtml}
   </div>
   <div class="col-headers">
     <div class="col-hdr ch-input" onclick="toggleColumn('input')" title="Click to collapse/expand this column">🧑 Input <span class="ct">${columnCounter("input")}</span></div>
@@ -964,13 +991,22 @@ function convertFile(inputPath: string, outputPath: string): FileResult {
       console.error(`  Dashboard error (${source}): ${e}`);
     }
 
-    const simulationPath = outputPath.replace(/\.html$/i, "-simulation.html");
-    try {
-      fs.writeFileSync(simulationPath, generateSimulationHtml(sidecar), "utf-8");
-      console.log(`Generated: ${path.resolve(simulationPath)}`);
-      result.simulationPath = simulationPath;
-    } catch (e) {
-      console.error(`  Simulation error (${source}): ${e}`);
+    // The simulator is built entirely on `TimelinePoint.usage`: with none
+    // recorded it would render every tool as "impact not derivable" and every
+    // metric as zero. Skipping the page is the honest outcome — the index shows
+    // the link greyed out, which reads as "not available here", where a page of
+    // zeros would read as a result.
+    if (sidecar.usageAvailable === false) {
+      console.log(`  Simulation skipped (${sidecar.source ?? "source"} records no token usage)`);
+    } else {
+      const simulationPath = outputPath.replace(/\.html$/i, "-simulation.html");
+      try {
+        fs.writeFileSync(simulationPath, generateSimulationHtml(sidecar), "utf-8");
+        console.log(`Generated: ${path.resolve(simulationPath)}`);
+        result.simulationPath = simulationPath;
+      } catch (e) {
+        console.error(`  Simulation error (${source}): ${e}`);
+      }
     }
   }
   return result;
@@ -1053,6 +1089,7 @@ function main() {
       linesAdded: r.metrics?.linesAdded ?? 0,
       linesRemoved: r.metrics?.linesRemoved ?? 0,
       hasMetrics: r.metrics !== null,
+      hasCost: r.metrics?.hasCost ?? true,
     });
 
     // Nest subagent/workflow transcripts under the main discussion that spawned

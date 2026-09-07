@@ -1,11 +1,13 @@
 # coding-conversation-analyzer
 
 Export coding-agent conversations into readable markdown, then turn them into an
-interactive HTML viewer for analysis. Two agents are supported, and both land in the
+interactive HTML viewer for analysis. Three agents are supported, and all land in the
 same format so a single index can list them side by side:
 
 - **[Claude Code](https://claude.com/claude-code)** — the jsonl transcripts under `~/.claude/projects/`
 - **[OpenCode](https://opencode.ai)** — the SQLite database at `$XDG_DATA_HOME/opencode/opencode.db`
+- **[Cursor](https://cursor.com)** — the SQLite database at
+  `Cursor/User/globalStorage/state.vscdb` (see [the Cursor caveat](#cursor-records-no-token-usage))
 
 Two steps, both run through the **`cca`** CLI (see [Install](#install)):
 
@@ -76,30 +78,52 @@ changed conversations.
 ### Choosing a source
 
 By default (`--source auto`) every agent that has sessions for the current git root is
-exported, so a task done twice — once in Claude Code, once in OpenCode — shows up as two
+exported, so a task done twice — once in Claude Code, once in Cursor — shows up as two
 rows in the same index, directly comparable. Restrict it with `--source`:
 
 ```bash
 cca export <output-dir> --source claude     # Claude Code only
 cca export <output-dir> --source opencode   # OpenCode only
+cca export <output-dir> --source cursor     # Cursor only
 ```
 
-OpenCode's database is read **read-only** through Node's built-in `node:sqlite`, which is
-safe while OpenCode is running. Filenames are unambiguous per source: Claude sessions use
-their 8-character uuid prefix, OpenCode sessions an `oc`-tagged session id
-(`…-ocf850f7be.md`).
+The OpenCode and Cursor databases are read **read-only** through Node's built-in
+`node:sqlite`, which is safe while either app is running — Cursor's write-ahead log is
+replayed, so a session written seconds ago exports in full. Filenames are unambiguous per
+source: Claude sessions use their 8-character uuid prefix, OpenCode sessions an
+`oc`-tagged session id (`…-ocf850f7be.md`), Cursor sessions a `cu`-tagged one
+(`…-cucdd5e6fe.md`).
 
 A few things differ because the sources differ, and the reports say so rather than
 pretending otherwise:
 
-| | Claude Code | OpenCode |
-| --- | --- | --- |
-| Branch | recorded per message | **not recorded** — read from the working tree now, and stamped `branchSource: "live-git"` |
-| Timeline band | permission mode (Normal / Plan / Auto-accept / Bypass) | active **agent / mode** (build, plan, explore, …) — a different thing, labelled differently |
-| Diffs | approximated from the edit's before/after strings | real unified diffs with exact add/delete counts |
-| Subagent links | scraped from the spawn's result text | stated outright, and nested arbitrarily deep |
-| Task notifications / workflows | present | no analog — simply never emitted |
-| Compaction | — | marked on the transcript and the timeline (🗜️) |
+| | Claude Code | OpenCode | Cursor |
+| --- | --- | --- | --- |
+| Token usage & cost | recorded per message | recorded per API step | **not recorded at all** — see below |
+| Branch | recorded per message | **not recorded** — read from the working tree now, and stamped `branchSource: "live-git"` | recorded at session time (`branchSource: "snapshot"`) |
+| Timeline band | permission mode (Normal / Plan / Auto-accept / Bypass) | active **agent / mode** (build, plan, explore, …) — a different thing, labelled differently | session mode (agent / chat / edit), one flat segment — Cursor records no transitions |
+| Diffs | approximated from the edit's before/after strings | real unified diffs with exact add/delete counts | real line-level diffs, exact — Cursor precomputes them |
+| Subagent links | scraped from the spawn's result text | stated outright, and nested arbitrarily deep | stated outright, with retried spawns excluded |
+| Task notifications / workflows | present | no analog — simply never emitted | no analog — simply never emitted |
+| Compaction | — | marked on the transcript and the timeline (🗜️) | not observable in what Cursor stores |
+
+#### Cursor records no token usage
+
+Cursor meters usage server-side and writes `{"inputTokens": 0, "outputTokens": 0}` for
+every message on disk. There is nothing to price, so **a Cursor export omits cost rather
+than reporting `$0.00`** — a zero would be a claim about the session, and the wrong one.
+Concretely:
+
+- the markdown carries `tokens: unavailable` in its frontmatter and a one-paragraph note
+  above the transcript;
+- the dashboard shows a banner, an `n/a` cost tile, and — in place of the cost/context
+  chart — Cursor's own estimated **context breakdown** (system prompt, tools, rules,
+  skills, MCP, conversation), which neither other source provides;
+- the simulation page is not generated, since it is built entirely on token usage;
+- in a mixed-source index the row reads `n/a` and is left out of the selected cost total.
+
+Everything else — messages, thinking, tool calls and results, timings, diffs, subagents —
+is complete, and in places more exact than the other sources.
 
 Long tool results are truncated by default. Pass `--full` to export them in full:
 
@@ -107,15 +131,18 @@ Long tool results are truncated by default. Pass `--full` to export them in full
 cca export <output-dir> --full
 ```
 
-By default it reads Claude Code's history from `~/.claude` and OpenCode's from
-`$XDG_DATA_HOME/opencode` (i.e. `~/.local/share/opencode`). Pass `--claude-dir <path>` or
-`--opencode-dir <path>` (`=<path>` also works, `~` is expanded) to read from a different
-location — useful for a non-standard `CLAUDE_CONFIG_DIR`, a backup, or another machine's
-history:
+By default it reads Claude Code's history from `~/.claude`, OpenCode's from
+`$XDG_DATA_HOME/opencode` (i.e. `~/.local/share/opencode`), and Cursor's from the platform
+application-support directory (`~/Library/Application Support/Cursor` on macOS,
+`~/.config/Cursor` on Linux, `%APPDATA%/Cursor` on Windows). Pass `--claude-dir <path>`,
+`--opencode-dir <path>` or `--cursor-dir <path>` (`=<path>` also works, `~` is expanded) to
+read from a different location — useful for a non-standard `CLAUDE_CONFIG_DIR`, a backup,
+or another machine's history:
 
 ```bash
 cca export <output-dir> --claude-dir /path/to/.claude
 cca export <output-dir> --opencode-dir /path/to/opencode
+cca export <output-dir> --cursor-dir "/path/to/Cursor"
 ```
 
 Output structure:
@@ -233,12 +260,13 @@ Same dark theme, a single-page metrics report generated from the JSON sidecar:
   free models, which show an honest `$0`. The context-window axis is the largest limit
   across the models the session actually used
 - Message timeline with a thinking-blocks toggle and a band showing the permission mode
-  (Claude Code) or the active agent/mode (OpenCode)
+  (Claude Code), the active agent/mode (OpenCode) or the session mode (Cursor)
 - Spawned subagents, with per-model token totals
 - Generated diffs from `Write`/`Edit` tool calls
 - **Setup** panel — the agents and skills active for the run. Read from the current
   config (`.claude` for Claude Code; `agent/`, `command/` and `opencode.json(c)` plus
-  `AGENTS.md` for OpenCode), so it reflects config *now*, not necessarily at run time
+  `AGENTS.md` for OpenCode; `.cursor/` agents, skills, commands and rules plus Cursor's
+  built-in skills for Cursor), so it reflects config *now*, not necessarily at run time
 
 Refresh the price catalog from models.dev with `npm run sync-models` — it prints entries
 for review; the checked-in catalog stays authoritative so exports are reproducible.

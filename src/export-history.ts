@@ -4,7 +4,9 @@
 // Source-agnostic: a `SourceAdapter` (see `sources/`) turns whatever a coding
 // agent stores on disk into the neutral intermediate, and everything below —
 // markdown rendering, the dashboard sidecar, the output layout — is shared.
-// Claude Code reads jsonl transcripts; OpenCode reads its SQLite database.
+// Claude Code reads jsonl transcripts; OpenCode and Cursor read SQLite stores.
+// A source that records no token usage (Cursor) flags it, and the reports say
+// so rather than printing zeros — see `no-usage.ts`.
 //
 // Version is unified project-wide; see package.json and CLAUDE.md → Versioning.
 
@@ -12,6 +14,7 @@ import { execSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { noUsageMarkdown } from "./no-usage.ts";
 import { VERSION, handleVersionFlag } from "./version.ts";
 import type {
   DiffEntry,
@@ -23,10 +26,12 @@ import type {
   ToolCounts,
 } from "./sidecar.ts";
 import { ClaudeAdapter } from "./sources/claude.ts";
+import { CursorAdapter } from "./sources/cursor.ts";
 import { OpenCodeAdapter } from "./sources/opencode.ts";
 import {
   addUsage,
   emptyUsage,
+  type ExactDiff,
   type NeutralBlock,
   type NeutralConversation,
   type NeutralSession,
@@ -52,8 +57,8 @@ const projectRoot = getProjectRoot();
 
 // --- CLI ---
 
-type SourceName = "claude" | "opencode";
-const SOURCE_NAMES: SourceName[] = ["claude", "opencode"];
+type SourceName = "claude" | "opencode" | "cursor";
+const SOURCE_NAMES: SourceName[] = ["claude", "opencode", "cursor"];
 
 const rawArgs = process.argv.slice(2);
 handleVersionFlag(rawArgs, "cca-export");
@@ -61,6 +66,7 @@ const fullExport = rawArgs.includes("--full");
 const positional: string[] = [];
 let claudeDirArg: string | undefined;
 let openCodeDirArg: string | undefined;
+let cursorDirArg: string | undefined;
 let sourceArg = "auto";
 
 for (let i = 0; i < rawArgs.length; i++) {
@@ -82,6 +88,11 @@ for (let i = 0; i < rawArgs.length; i++) {
     openCodeDirArg = od;
     continue;
   }
+  const cud = opt("cursor-dir");
+  if (cud !== undefined) {
+    cursorDirArg = cud;
+    continue;
+  }
   const sr = opt("source");
   if (sr !== undefined) {
     sourceArg = sr;
@@ -92,11 +103,15 @@ for (let i = 0; i < rawArgs.length; i++) {
 }
 
 const USAGE =
-  "Usage: cca-export <target-dir> [--full] [--source claude|opencode|auto]\n" +
-  "                  [--claude-dir <path>] [--opencode-dir <path>] [--version]";
+  "Usage: cca-export <target-dir> [--full] [--source claude|opencode|cursor|auto]\n" +
+  "                  [--claude-dir <path>] [--opencode-dir <path>] [--cursor-dir <path>]\n" +
+  "                  [--version]";
 
 if (sourceArg !== "auto" && !SOURCE_NAMES.includes(sourceArg as SourceName)) {
-  console.error(`Error: unknown --source ${JSON.stringify(sourceArg)}. Expected auto, claude or opencode.`);
+  console.error(
+    `Error: unknown --source ${JSON.stringify(sourceArg)}. ` +
+      `Expected auto, ${SOURCE_NAMES.join(", ")}.`,
+  );
   process.exit(1);
 }
 
@@ -137,13 +152,21 @@ function langFor(filePath: string): string {
 
 // Render a tool's input for the transcript. Keyed on the *canonical* tool names
 // and input keys — adapters normalise their source's own names onto these, so
-// this stays source-agnostic.
-function formatToolInput(name: string, input: unknown): string {
+// this stays source-agnostic. `diff` is the exact patch when the source
+// recorded one instead of the edit's before/after strings.
+function formatToolInput(name: string, input: unknown, diff?: ExactDiff): string {
   const obj = typeof input === "object" && input !== null ? input : null;
   if (!obj) return JSON.stringify(input);
 
   const { file_path, content, old_string, new_string, command, description, pattern } =
     obj as Record<string, string | undefined>;
+
+  // Cursor states an edit only as a precomputed diff — it records no
+  // before/after strings at all — so without this the call renders as an empty
+  // `-`/`+` pair. Sources that do supply the strings keep rendering from them.
+  if (diff && !old_string && !new_string && !content) {
+    return `\`${diff.file || file_path || ""}\`\n\`\`\`diff\n${truncate(diff.patch)}\n\`\`\``;
+  }
 
   switch (name) {
     case "Write": {
@@ -337,7 +360,7 @@ function parseConversation(session: NeutralSession) {
           // link the call straight into the subagent's own discussion page.
           const link = b.agentId ? `\n\n[[agent:${b.agentId}]]` : "";
           pushMsg(
-            `\n## ⚪️ Tool Call: ${b.displayTool ?? name}\n${formatToolInput(name, b.input)}${link}`,
+            `\n## ⚪️ Tool Call: ${b.displayTool ?? name}\n${formatToolInput(name, b.input, b.diff)}${link}`,
           );
           break;
         }
@@ -389,6 +412,10 @@ function parseConversation(session: NeutralSession) {
     branch: session.branch,
     categories,
     uuid: session.uuid,
+    source: session.source,
+    // A source that records no usage at all (Cursor). The exported markdown
+    // has to say so; see `no-usage.ts` for why a missing number is not enough.
+    usageAvailable: session.usageAvailable !== false,
   };
 }
 
@@ -418,6 +445,13 @@ function formatHeader(stats: ReturnType<typeof parseConversation>): string {
     .map(([k, v]) => `${v} ${k.replace("tool_call:", "")}`)
     .join(", ");
 
+  // Frontmatter is byte-identical to what every export has written so far
+  // unless the source records no usage, in which case two machine-readable keys
+  // are appended so downstream tooling can branch without matching prose.
+  const provenance = stats.usageAvailable
+    ? ""
+    : `source: ${stats.source}\ntokens: unavailable\n`;
+
   return `---
 uuid: ${stats.uuid}
 branch: ${stats.branch}
@@ -426,8 +460,8 @@ ended: ${formatLocal(stats.lastTimestamp)}
 duration: ${formatDuration(stats.firstTimestamp, stats.lastTimestamp)}
 messages: ${msgLine}
 tools: ${toolLine || "none"}
----
-`;
+${provenance}---
+${stats.usageAvailable ? "" : "\n" + noUsageMarkdown(stats.source)}`;
 }
 
 // --- Export bookkeeping ---
@@ -799,6 +833,11 @@ function buildSidecar(conv: NeutralConversation): Sidecar {
   if (session.source !== "claude-code") sidecar.source = session.source;
   if (session.models && Object.keys(session.models).length) sidecar.models = session.models;
   if (session.branchSource) sidecar.branchSource = session.branchSource;
+  // Only ever written as `false`, and only by a source that records no usage:
+  // an absent flag means the timeline's usage is real, which is how every
+  // sidecar written before Cursor support reads.
+  if (session.usageAvailable === false) sidecar.usageAvailable = false;
+  if (session.contextBreakdown) sidecar.contextBreakdown = session.contextBreakdown;
   return sidecar;
 }
 
@@ -882,21 +921,26 @@ function buildAdapters(): SourceAdapter[] {
           formatTimestamp,
         }),
       );
-    } else {
-      try {
-        out.push(
-          new OpenCodeAdapter({
-            projectRoot,
-            ...(openCodeDirArg ? { dataDir: openCodeDirArg } : {}),
-          }),
-        );
-      } catch (e) {
-        // An explicitly requested source that can't be opened is fatal; in
-        // `auto` it just means this machine has no OpenCode data.
-        if (sourceArg !== "auto") {
-          console.error(`Error: ${e instanceof Error ? e.message : e}`);
-          process.exit(1);
-        }
+      continue;
+    }
+    try {
+      out.push(
+        name === "opencode"
+          ? new OpenCodeAdapter({
+              projectRoot,
+              ...(openCodeDirArg ? { dataDir: openCodeDirArg } : {}),
+            })
+          : new CursorAdapter({
+              projectRoot,
+              ...(cursorDirArg ? { cursorDir: cursorDirArg } : {}),
+            }),
+      );
+    } catch (e) {
+      // An explicitly requested source that can't be opened is fatal; in
+      // `auto` it just means this machine has no data for that agent.
+      if (sourceArg !== "auto") {
+        console.error(`Error: ${e instanceof Error ? e.message : e}`);
+        process.exit(1);
       }
     }
   }

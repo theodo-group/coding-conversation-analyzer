@@ -7,6 +7,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { attr, escape, fmtDuration, fmtMoney, fmtOffset, fmtTokens } from "./html/format.ts";
+import { noUsageBody, noUsageHeadline, noUsageShort } from "./no-usage.ts";
 import {
   contextLimitOf,
   costOf,
@@ -71,12 +72,17 @@ const AGENT_MODE_META: Record<string, { label: string; color: string }> = {
   plan: { label: "📝 Plan", color: "#8957e5" },
   explore: { label: "🔎 Explore", color: "#56d4dd" },
   general: { label: "🧩 General", color: "#d29922" },
+  // Cursor's `unifiedMode`, which is the same axis as OpenCode's agent — what
+  // the session was *doing*, not what it was permitted to do.
+  agent: { label: "🤖 Agent", color: "#768390" },
+  chat: { label: "💬 Chat", color: "#56d4dd" },
+  edit: { label: "✏️ Edit", color: "#d29922" },
 };
 
 // Label + colour for one band segment. Custom OpenCode agents aren't in the
 // table, so they get their name and a hue hashed from it.
 function modeMeta(mode: string, source: Sidecar["source"]): { label: string; color: string } {
-  if (source === "opencode") {
+  if (source === "opencode" || source === "cursor") {
     return AGENT_MODE_META[mode] ?? { label: mode, color: hashedColor(mode) };
   }
   return MODE_META[mode] ?? { label: mode, color: "#768390" };
@@ -173,18 +179,25 @@ export interface SidecarSummary {
   durationSeconds: number;
   linesAdded: number;
   linesRemoved: number;
+  // False when the source recorded no token usage, so the index shows `n/a`
+  // rather than a $0.00 that would sort as the cheapest session in the list.
+  hasCost: boolean;
+  source?: Sidecar["source"];
 }
 
 export function summarizeSidecar(s: Sidecar): SidecarSummary {
   const cc = computeCost(s);
-  return {
+  const summary: SidecarSummary = {
     title: (s.title || "").trim(),
     totalCost: cc.totalCost,
     peakContext: cc.peakContext,
     durationSeconds: s.durationSeconds || 0,
     linesAdded: s.stats?.linesAdded ?? 0,
     linesRemoved: s.stats?.linesRemoved ?? 0,
+    hasCost: s.usageAvailable !== false,
   };
+  if (s.source) summary.source = s.source;
+  return summary;
 }
 
 // --- SVG dual chart (cumulative cost + context tokens over time) ---
@@ -292,12 +305,21 @@ function heroSection(s: Sidecar): string {
     .filter(Boolean)
     .map((c) => `<span>${escape(c)}</span>`)
     .join("");
-  const title = s.title.trim() || "Claude conversation";
+  const title = s.title.trim() || "Untitled conversation";
   return `<div class="hero">
   <div class="eyebrow">Conversation report</div>
   <h1>${escape(title.length > 160 ? title.slice(0, 160) + "…" : title)}</h1>
   <div class="subtitle">${chips}</div>
 </div>`;
+}
+
+// A persistent banner at the top of the report. The cost row carries the same
+// note, but the cost row can be scrolled past — and a reader who opens this
+// page out of context must not be able to mistake the missing numbers for
+// measured ones.
+function noUsageBanner(s: Sidecar): string {
+  if (s.usageAvailable !== false) return "";
+  return `<div class="banner"><strong>${escape(noUsageHeadline(s.source))}</strong> ${escape(noUsageBody(s.source))}</div>`;
 }
 
 function statTiles(s: Sidecar, cc: CostContext): string {
@@ -320,8 +342,14 @@ function statTiles(s: Sidecar, cc: CostContext): string {
       : undefined;
   // A tile's value is either escaped plain text or a pre-built HTML fragment
   // (4th tuple slot), used for the two-line diff stat.
+  // A source that records no usage gets `n/a`, not `$0.00` — and keeps its
+  // tile, because a hole in the grid reads as a layout bug while `n/a` reads as
+  // a fact. The footnote marker points at the callout that explains it.
+  const noUsage = s.usageAvailable === false;
   const tiles: Array<[string, string, string?, string?]> = [
-    ["Total cost", fmtMoney(cc.totalCost)],
+    noUsage
+      ? ["Total cost", "", noUsageShort(s.source), `<div class="stat-value stat-na" title="${attr(noUsageShort(s.source))}">n/a<sup>*</sup></div>`]
+      : ["Total cost", fmtMoney(cc.totalCost)],
     ["Duration", fmtDuration(s.durationSeconds)],
     ["Lines changed", "", linesNote, linesChangedHtml],
     ["Models", String(cc.models.length), cc.models.map((m) => m.replace(/^claude-/, "")).join(", ")],
@@ -340,7 +368,47 @@ function statTiles(s: Sidecar, cc: CostContext): string {
     .join("")}</div>`;
 }
 
+// What fills the slot the cost/context chart would occupy when the source
+// recorded no usage. The chart's context axis is as unusable as its cost axis —
+// both are drawn from `TimelinePoint.usage` — so neither is degraded into a
+// flat line at zero. In its place: the disclaimer, and the one thing Cursor
+// *does* record about context that the other sources don't.
+function noUsageSection(s: Sidecar): string {
+  const b = s.contextBreakdown;
+  const breakdown =
+    b && b.categories.length
+      ? (() => {
+          const max = Math.max(...b.categories.map((c) => c.tokens), 1);
+          const bars = b.categories
+            .slice()
+            .sort((x, y) => y.tokens - x.tokens)
+            .map(
+              (c) =>
+                `<div class="bd-row"><span class="bd-label">${escape(c.label)}</span>` +
+                `<span class="bd-bar"><i style="width:${((c.tokens / max) * 100).toFixed(1)}%"></i></span>` +
+                `<span class="bd-val">${fmtTokens(c.tokens)}</span></div>`,
+            )
+            .join("");
+          const pct = b.maxTokens ? ` · ${((b.usedTokens / b.maxTokens) * 100).toFixed(0)}% of the window` : "";
+          return `<div class="row-meta"><span>context used <strong>${fmtTokens(b.usedTokens)}</strong></span>` +
+            `${b.maxTokens ? `<span>window <strong>${fmtTokens(b.maxTokens)}</strong></span>` : ""}` +
+            `<span>${escape(pct.replace(/^ · /, ""))}</span></div>` +
+            `<div class="breakdown">${bars}</div>`;
+        })()
+      : `<div class="empty-note">This session recorded no context breakdown either.</div>`;
+
+  return `<div class="row">
+  <div class="row-label"><strong>Cost &amp; context</strong><span>Not recorded by this source — see the note.</span></div>
+  <div class="row-body">
+    <div class="callout" id="no-usage"><strong>${escape(noUsageHeadline(s.source))}</strong> ${escape(noUsageBody(s.source))}</div>
+    <div class="bd-head">Estimated context occupancy at the end of the session, by category — the source's own figures, not a measurement of any single turn.</div>
+    ${breakdown}
+  </div>
+</div>`;
+}
+
 function costSection(s: Sidecar, cc: CostContext): string {
+  if (s.usageAvailable === false) return noUsageSection(s);
   const meta = [
     `total <strong>${fmtMoney(cc.totalCost)}</strong>`,
     `main <strong>${fmtMoney(cc.mainCost)}</strong>`,
@@ -386,7 +454,7 @@ function messageSection(s: Sidecar, modelColors: Record<string, string>): string
   return `<div class="row">
   <div class="row-label">
     <strong>Main thread message history</strong>
-    <span>${s.source === "opencode" ? "Band: active agent / mode." : "Band: permission mode."}</span>
+    <span>${s.source === "opencode" ? "Band: active agent / mode." : s.source === "cursor" ? "Band: session mode." : "Band: permission mode."}</span>
     <div class="legend">${modelLegend}<span class="chip chip-prompt"><i></i>prompt</span></div>
     <button class="toggle-btn" id="thinking-toggle" type="button" aria-pressed="true">Hide 🧠 thinking</button>
   </div>
@@ -457,6 +525,27 @@ function diffSection(s: Sidecar): string {
 }
 
 // --- Page assembly ---
+
+const SOURCE_LABEL: Record<string, string> = {
+  "claude-code": "Claude Code",
+  opencode: "OpenCode",
+  cursor: "Cursor",
+};
+
+function footerNote(s: Sidecar): string {
+  const agent = SOURCE_LABEL[s.source ?? "claude-code"] ?? "";
+  const id = `Session ID: ${escape(s.uuid)}${agent ? ` · ${agent}` : ""}${s.version ? ` ${escape(s.version)}` : ""}.`;
+  if (s.usageAvailable === false) {
+    // No prices to explain, and explaining the cost model anyway would imply
+    // one had been applied.
+    return `${id} ${escape(noUsageBody(s.source))} Line counts, tool tallies, timings and diffs are read from the source transcript.`;
+  }
+  return (
+    `${id} Cost is computed from token usage using the model's published prices ` +
+    `(input · output · cache-creation · cache-read). Context tokens = <code>input + cache_creation + cache_read</code>; ` +
+    `the context axis is the largest window across the models the session used.`
+  );
+}
 
 export function generateDashboardHtml(s: Sidecar): string {
   const cc = computeCost(s);
@@ -594,6 +683,27 @@ body {
 .d-del { color: #ffa198; background: rgba(218,54,51,0.10); }
 .d-ctx { color: var(--text-muted); }
 
+/* Provenance notes (no recorded token usage). Neutral chrome on purpose: this
+   is a statement about what the source stored, not an error. */
+.banner, .callout {
+  background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--ctx);
+  border-radius: var(--radius); padding: 12px 16px; font-size: 13px; color: var(--text-muted);
+  line-height: 1.5; max-width: 100ch;
+}
+.banner strong, .callout strong { color: var(--text); }
+.callout { margin-bottom: 14px; }
+.stat-na { color: var(--text-muted); }
+.stat-na sup { font-size: 10px; color: var(--ctx); }
+
+/* Context breakdown, shown where the cost chart would be. */
+.bd-head { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; max-width: 80ch; }
+.breakdown { display: grid; gap: 5px; }
+.bd-row { display: grid; grid-template-columns: minmax(90px, 180px) minmax(0, 1fr) 56px; gap: 10px; align-items: center; font-size: 12px; }
+.bd-label { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-bar { background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; height: 14px; overflow: hidden; }
+.bd-bar i { display: block; height: 100%; background: var(--ctx); opacity: 0.55; }
+.bd-val { font-family: var(--mono); font-size: 11px; color: var(--text); text-align: right; }
+
 .footer-note { color: var(--text-muted); font-size: 11px; line-height: 1.5; max-width: 90ch; margin: 4px auto 0; }
 .footer-note code { font-family: var(--mono); background: var(--surface-2); padding: 1px 4px; border-radius: 3px; }
 
@@ -608,6 +718,7 @@ body {
 </head>
 <body>
 <main class="page">
+  ${noUsageBanner(s)}
   <section class="panel">
     ${heroSection(s)}
     ${statTiles(s, cc)}
@@ -619,11 +730,7 @@ body {
   </section>
   ${setupSection(s)}
   ${diffSection(s)}
-  <div class="footer-note">
-    Session ID: ${escape(s.uuid)} · Claude Code ${escape(s.version)}. Cost is computed from token usage using Anthropic's published prices
-    (input · output · cache-creation @1.25× · cache-read @0.1×). Context tokens = <code>input + cache_creation + cache_read</code>;
-    the context axis uses a 200k limit and switches to 1M when peak context exceeds 200k.
-  </div>
+  <div class="footer-note">${footerNote(s)}</div>
 </main>
 <div id="tip"></div>
 <script>

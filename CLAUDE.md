@@ -24,23 +24,43 @@ Install/update with `install.sh`.
 The exporter is source-agnostic. `src/sources/` holds one adapter per coding
 agent, each turning what that agent stores on disk into the neutral intermediate
 in `sources/types.ts`; `export-history.ts` renders markdown and builds the
-dashboard sidecar from that intermediate and knows nothing about either format.
+dashboard sidecar from that intermediate and knows nothing about any of their
+on-disk formats.
 
 - `sources/claude.ts` — Claude Code's jsonl transcripts under `~/.claude/projects/`
 - `sources/opencode.ts` — OpenCode's SQLite database, read-only via `node:sqlite`
+- `sources/cursor.ts` — Cursor's `state.vscdb`, same
+- `sources/sqlite.ts` — the shared read-only open (WAL replay, muted experimental
+  warning) both SQLite adapters use
 
 Adding a source means writing an adapter, not touching the exporter. Anything
 source-specific — tool names, input key casing, how a human turn is told apart
-from an injected one — belongs in the adapter, which normalises onto the
+from an injected one, whether a call and its result are one record or two —
+belongs in the adapter, which normalises onto the
 canonical tool names (`Read`, `Edit`, `Bash`, `Agent`, …) and snake_case input
 keys (`file_path`, `old_string`, …) the shared code formats against.
 
 **Regression rule:** a change to the shared exporter must keep Claude Code
 output byte-identical. Verify by exporting a frozen `~/.claude` copy before and
 after (`cca export <dir> --claude-dir <frozen> --source claude`) and diffing.
+Only the `tool=` stamp in the sidecar marker may differ, and only across a
+version bump. Each SQLite source has the same escape hatch for a frozen
+fixture: `--opencode-dir`, `--cursor-dir`.
 
-`docs/opencode-export-spec.md` records the OpenCode data model and the design
-decisions behind the adapter.
+`docs/opencode-export-spec.md` and `docs/cursor-export-spec.md` record each
+source's data model and the design decisions behind its adapter.
+
+**A source that records no token usage.** Cursor writes zeros for every
+`tokenCount`; it meters usage server-side. Such a source sets
+`NeutralSession.usageAvailable = false`, which reaches the sidecar and makes the
+reports omit cost rather than render `$0.00` — a zero is a claim about the
+session, and the wrong one. The wording of that notice lives in exactly one
+place, `src/no-usage.ts`, and appears on five surfaces: the markdown
+frontmatter (`tokens: unavailable`), the markdown body, the dashboard (banner +
+`n/a` tile + context-breakdown panel in place of the cost chart), the discussion
+viewer, and the index (`n/a`, excluded from the selected total). The simulation
+page is not generated at all, since it is built entirely on usage. If you add a
+source with the same gap, set the flag and the five surfaces follow.
 
 ## Pricing
 
@@ -58,15 +78,15 @@ sidecar's `models` field and merged in at render time via `withCatalog()`.
 ## Versioning
 
 The project follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
-The current version is **1.2.0**.
+The current version is **1.3.0**.
 
 **Single source of truth.** The version lives in exactly one place — the
 `version` field of `package.json`. Everything else derives from it:
 
 - `src/version.ts` reads `package.json` and exports `VERSION` plus a
   `handleVersionFlag()` helper. Import from here; never hard-code a version.
-- The CLIs support `--version` / `-v`: `cca --version` → `1.2.0`; the
-  subcommands report their own name, e.g. `cca export --version` → `cca-export 1.2.0`.
+- The CLIs support `--version` / `-v`: `cca --version` → `1.3.0`; the
+  subcommands report their own name, e.g. `cca export --version` → `cca-export 1.3.0`.
 - Every export stamps the tool version into the sidecar marker of the generated
   markdown: `<!-- cca:data v=<data-format> tool=<version> -->`.
 - `install.sh` prints the installed version after installing.
