@@ -1,4 +1,4 @@
-# claude-conversation-analyzer
+# coding-conversation-analyzer
 
 Export coding-agent conversations into readable markdown, then turn them into an
 interactive HTML viewer for analysis. Two agents are supported, and both land in the
