@@ -5,6 +5,8 @@
 // with per-row checkboxes that live-sum the group so several sessions on one
 // feature can be analyzed together. Dark theme, matching the other reports.
 
+import { escape, fmtDuration, fmtMoney, fmtTokens } from "./html/format.ts";
+
 // One conversation's row. `metrics` is null when no `.json` sidecar sat next
 // to the source markdown (no dashboard, no numbers) — the row still links to
 // the discussion viewer but contributes nothing to the selected totals.
@@ -27,34 +29,6 @@ export interface IndexEntry {
   hasMetrics: boolean;
   kind?: "subagent" | "workflow";
   children?: IndexEntry[];
-}
-
-function escape(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function fmtMoney(n: number): string {
-  return "$" + n.toFixed(2);
-}
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
-  return String(Math.round(n));
-}
-
-function fmtDuration(sec: number): string {
-  const s = Math.round(sec);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  if (m < 60) return `${m}m ${r}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
 }
 
 // Render one row. Children (subagents/workflows) are indented under their main

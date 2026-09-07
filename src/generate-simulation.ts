@@ -15,52 +15,15 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { attr, escape, fmtOffset, fmtTokens } from "./html/format.ts";
 import {
   DEFAULT_MODEL_ID,
   costOf,
   resolveModel,
   resolvedCosts,
   withCatalog,
-  type ModelEntry,
 } from "./models.ts";
-
-// --- Sidecar shape (mirror of export-claude-history.ts) ---
-
-interface Usage {
-  in: number;
-  out: number;
-  cw: number;
-  cr: number;
-}
-interface TimelinePoint {
-  i: number;
-  kind: string;
-  t: number;
-  model?: string;
-  subagentModel?: string;
-  tool?: string;
-  label?: string;
-  permissionMode?: string;
-  usage?: Usage;
-  outChars?: number; // tool_result points: size of the result content
-}
-interface Sidecar {
-  uuid: string;
-  sessionId: string;
-  cwd: string;
-  branch: string;
-  version: string;
-  title: string;
-  start: string;
-  end: string;
-  durationSeconds: number;
-  timeZone: string;
-  timeline: TimelinePoint[];
-  subagentUsageByModel: Record<string, Usage>;
-  // Additive fields; absent on sidecars written before OpenCode support.
-  source?: "claude-code" | "opencode";
-  models?: Record<string, ModelEntry>;
-}
+import type { Sidecar, TimelinePoint } from "./sidecar.ts";
 
 // --- Pricing ---
 // Prices come from the shared models.dev-shaped catalog (`models.ts`), merged
@@ -69,37 +32,6 @@ interface Sidecar {
 // will actually see (see `costs` in the payload), so the client-side recompute
 // is a plain lookup with no matching rules or derived multipliers to keep in
 // sync with the server.
-
-// --- Formatting ---
-
-function escape(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function attr(text: string): string {
-  return escape(text).replace(/\n+/g, " ⏎ ");
-}
-
-function fmtDuration(sec: number): string {
-  const s = Math.round(sec);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  if (m < 60) return `${m}m ${r}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
-}
-
-function fmtOffset(sec: number): string {
-  const s = Math.round(sec);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  return `${m}m ${s % 60}s`;
-}
 
 // --- Attribution model ---
 //
@@ -461,12 +393,6 @@ function buildSim(s: Sidecar): SimData {
 function truncate(text: string, n: number): string {
   const one = text.replace(/\s+/g, " ").trim();
   return one.length > n ? one.slice(0, n) + "…" : one;
-}
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
-  return String(Math.round(n));
 }
 
 function renderRow(r: Row): string {

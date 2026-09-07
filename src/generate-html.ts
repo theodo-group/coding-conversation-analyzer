@@ -7,6 +7,8 @@ import * as path from "path";
 import { generateDashboardHtml, summarizeSidecar } from "./generate-dashboard.ts";
 import { generateSimulationHtml } from "./generate-simulation.ts";
 import { generateIndexHtml, type IndexEntry } from "./generate-index.ts";
+import { escape } from "./html/format.ts";
+import type { Sidecar } from "./sidecar.ts";
 import { handleVersionFlag } from "./version.ts";
 
 // --- Types ---
@@ -118,8 +120,7 @@ function stripDataBlock(text: string): string {
 }
 
 // Parse the embedded sidecar out of raw .md text, or null when absent/invalid.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractEmbeddedSidecar(text: string): any {
+function extractEmbeddedSidecar(text: string): Sidecar | null {
   const m = text.match(DATA_BLOCK_RE);
   if (!m?.[1]) return null;
   try {
@@ -211,14 +212,6 @@ function parseBlocks(lines: string[]): RawBlock[] {
 }
 
 // --- HTML Generation ---
-
-function escape(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 function contentToHtml(lines: string[]): string {
   const text = lines.join("\n").trim();

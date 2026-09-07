@@ -6,105 +6,16 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { attr, escape, fmtDuration, fmtMoney, fmtOffset, fmtTokens } from "./html/format.ts";
 import {
   contextLimitOf,
   costOf,
   resolveModel,
   withCatalog,
   type ModelCatalog,
-  type ModelEntry,
 } from "./models.ts";
-
-// --- Sidecar shape (mirror of export-claude-history.ts) ---
-
-interface Usage {
-  in: number;
-  out: number;
-  cw: number;
-  cr: number;
-}
-interface TimelinePoint {
-  i: number;
-  kind: string;
-  t: number;
-  model?: string;
-  subagentModel?: string;
-  tool?: string;
-  label?: string;
-  permissionMode?: string;
-  usage?: Usage;
-}
-interface SubagentSpawn {
-  type: string;
-  description: string;
-  input: string;
-  t: number;
-  model?: string;
-}
-interface DiffLine {
-  type: "add" | "del" | "ctx";
-  text: string;
-}
-interface DiffEntry {
-  op: "Write" | "Edit";
-  filePath: string;
-  added: number;
-  removed: number;
-  hunk: DiffLine[];
-  origin?: "main" | "subagent";
-}
-interface ToolCounts {
-  read: number;
-  search: number;
-  bash: number;
-  edit: number;
-  other: number;
-}
-interface PermissionSegment {
-  mode: string;
-  start: number;
-  end: number;
-}
-interface SetupItem {
-  kind: "agent" | "skill";
-  name: string;
-  description: string;
-}
-interface Sidecar {
-  uuid: string;
-  sessionId: string;
-  cwd: string;
-  branch: string;
-  version: string;
-  title: string;
-  start: string;
-  end: string;
-  durationSeconds: number;
-  timeZone: string;
-  stats: {
-    humanTurns: number;
-    linesAdded: number;
-    linesRemoved: number;
-    toolCounts: ToolCounts;
-    // Subagent-only portion of the whole-session totals above; main = total −
-    // subagent. Optional so older sidecars (pre-split) still render.
-    subagent?: {
-      linesAdded: number;
-      linesRemoved: number;
-      toolCounts: ToolCounts;
-    };
-  };
-  timeline: TimelinePoint[];
-  permissionSegments: PermissionSegment[];
-  subagents: SubagentSpawn[];
-  subagentUsageByModel: Record<string, Usage>;
-  diffs: DiffEntry[];
-  setup: { project: SetupItem[]; user: SetupItem[] };
-  // Additive fields; absent on sidecars written before OpenCode support.
-  source?: "claude-code" | "opencode";
-  models?: Record<string, ModelEntry>;
-  branchSource?: "snapshot" | "live-git" | "unknown";
-}
+import type { Sidecar, TimelinePoint } from "./sidecar.ts";
+import type { SetupItem, Usage } from "./sources/types.ts";
 
 // --- Pricing ---
 // Prices and context limits come from the shared models.dev-shaped catalog in
@@ -169,48 +80,6 @@ function modeMeta(mode: string, source: Sidecar["source"]): { label: string; col
     return AGENT_MODE_META[mode] ?? { label: mode, color: hashedColor(mode) };
   }
   return MODE_META[mode] ?? { label: mode, color: "#768390" };
-}
-
-// --- Formatting ---
-
-function escape(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-// Escape for an HTML attribute value (data-tip / title): collapse newlines.
-function attr(text: string): string {
-  return escape(text).replace(/\n+/g, " ⏎ ");
-}
-
-function fmtMoney(n: number): string {
-  return "$" + n.toFixed(2);
-}
-
-function fmtDuration(sec: number): string {
-  const s = Math.round(sec);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  if (m < 60) return `${m}m ${r}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
-}
-
-function fmtOffset(sec: number): string {
-  const s = Math.round(sec);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  return `${m}m ${s % 60}s`;
-}
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
-  return String(Math.round(n));
 }
 
 function fmtStartDate(iso: string, timeZone: string): string {

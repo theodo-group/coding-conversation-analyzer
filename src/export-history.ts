@@ -13,7 +13,15 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { VERSION, handleVersionFlag } from "./version.ts";
-import type { ModelEntry } from "./models.ts";
+import type {
+  DiffEntry,
+  DiffLine,
+  PermissionSegment,
+  Sidecar,
+  SubagentSpawn,
+  TimelinePoint,
+  ToolCounts,
+} from "./sidecar.ts";
 import { ClaudeAdapter } from "./sources/claude.ts";
 import { OpenCodeAdapter } from "./sources/opencode.ts";
 import {
@@ -101,117 +109,6 @@ if (!targetDirArg) {
 const targetDir = path.isAbsolute(targetDirArg)
   ? targetDirArg
   : path.join(projectRoot, targetDirArg);
-
-// --- Sidecar (dashboard data) types ---
-
-// A single event on the message timeline. `t` is seconds from session start.
-interface TimelinePoint {
-  i: number;
-  kind:
-    | "prompt"
-    | "assistant"
-    | "thinking"
-    | "tool_use"
-    | "tool_result"
-    | "notification"
-    | "skill"
-    | "compaction";
-  t: number;
-  model?: string; // model that issued the message/call (the caller)
-  subagentModel?: string; // for Agent/Task spawns: the model the subagent ran on
-  tool?: string;
-  label?: string; // short text preview (prompts, tool inputs)
-  permissionMode?: string;
-  usage?: Usage; // present on assistant API calls only
-  outChars?: number; // tool_result points: size of the result content, for
-  // apportioning a turn's context weight across parallel tools in the simulator
-}
-
-interface SubagentSpawn {
-  type: string;
-  description: string;
-  input: string;
-  t: number;
-  // Model the subagent actually ran on (resolved from its transcript), not the
-  // orchestrator model that issued the spawn. Absent if it can't be resolved.
-  model?: string;
-}
-
-interface DiffLine {
-  type: "add" | "del" | "ctx";
-  text: string;
-}
-
-interface ToolCounts {
-  read: number;
-  search: number;
-  bash: number;
-  edit: number;
-  other: number;
-}
-
-interface DiffEntry {
-  op: "Write" | "Edit";
-  filePath: string;
-  added: number;
-  removed: number;
-  hunk: DiffLine[];
-  // "main" = issued by the main thread; "subagent" = issued inside a
-  // subagent/workflow transcript. Absent is treated as "main" by readers.
-  origin?: "main" | "subagent";
-}
-
-interface PermissionSegment {
-  mode: string;
-  start: number; // seconds
-  end: number; // seconds
-}
-
-interface Sidecar {
-  uuid: string;
-  sessionId: string;
-  cwd: string;
-  branch: string;
-  version: string;
-  title: string;
-  start: string;
-  end: string;
-  durationSeconds: number;
-  timeZone: string;
-  // Top-level line/tool counts are whole-session totals (main thread +
-  // subagents). `subagent` breaks out the subagent-only portion so the
-  // dashboard can show a main-vs-subagent split (main = total − subagent),
-  // mirroring how cost is split via subagentUsageByModel.
-  stats: {
-    humanTurns: number;
-    linesAdded: number;
-    linesRemoved: number;
-    toolCounts: ToolCounts;
-    subagent: {
-      linesAdded: number;
-      linesRemoved: number;
-      toolCounts: ToolCounts;
-    };
-  };
-  timeline: TimelinePoint[];
-  permissionSegments: PermissionSegment[];
-  subagents: SubagentSpawn[];
-  // Aggregated token usage across every subagent/workflow transcript, by model.
-  subagentUsageByModel: Record<string, Usage>;
-  diffs: DiffEntry[];
-  setup: {
-    project: SetupItem[];
-    user: SetupItem[];
-  };
-  // Which agent produced the conversation. Absent means Claude Code, so
-  // sidecars written before OpenCode support still read correctly.
-  source?: "claude-code" | "opencode";
-  // Price/limit entries for models the built-in catalog doesn't know, keyed
-  // exactly as `TimelinePoint.model`. models.dev shape, verbatim.
-  models?: Record<string, ModelEntry>;
-  // How `branch` was determined, when the source doesn't record one outright.
-  branchSource?: "snapshot" | "live-git" | "unknown";
-}
 
 // --- Helpers ---
 
