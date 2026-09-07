@@ -26,7 +26,8 @@ type Subtype =
   | "tool-call"
   | "tool-result"
   | "tool-error"
-  | "skill-prompt";
+  | "skill-prompt"
+  | "compaction";
 
 interface RawBlock {
   heading: string;
@@ -67,11 +68,12 @@ const SUBTYPE_META: Record<Subtype, { column: Column; emoji: string; label: stri
   "tool-result": { column: "tool", emoji: "🟢", label: "Result" },
   "tool-error": { column: "tool", emoji: "🔴", label: "Error" },
   "skill-prompt": { column: "tool", emoji: "📜", label: "Skill Prompt" },
+  compaction: { column: "input", emoji: "🗜️", label: "Compaction" },
 };
 
 const COLUMN_INDEX: Record<Column, number> = { input: 1, assistant: 2, tool: 3 };
 const COLUMN_SUBTYPES: Record<Column, Subtype[]> = {
-  input: ["user", "teammate", "command", "notification"],
+  input: ["user", "teammate", "command", "notification", "compaction"],
   assistant: ["assistant", "thinking"],
   tool: ["tool-call", "tool-result", "tool-error", "skill-prompt"],
 };
@@ -129,7 +131,7 @@ function extractEmbeddedSidecar(text: string): any {
 
 // --- Parsing ---
 
-const BLOCK_HEADING_RE = /^## ((?:🧑|🤖|⚪️|🟢|🔴|❌|🤝|⌨️|🔔|🧠|📜)\s.+)$/;
+const BLOCK_HEADING_RE = /^## ((?:🧑|🤖|⚪️|🟢|🔴|❌|🤝|⌨️|🔔|🧠|📜|🗜️)\s.+)$/;
 
 function parseFrontmatter(lines: string[]): { fm: Frontmatter; rest: string[] } {
   if (!lines.length || lines[0]!.trim() !== "---") return { fm: {}, rest: lines };
@@ -160,6 +162,9 @@ function classify(heading: string): Pick<ContentBlock, "column" | "subtype" | "t
   }
   if (heading.includes("⌨️") || heading.includes("Command")) return { column: "input", subtype: "command" };
   if (heading.includes("🔔") || heading.includes("Task Notification")) return { column: "input", subtype: "notification" };
+  // The context window was compacted here — everything above it left the model's
+  // working set, which is why the context curve drops at this point.
+  if (heading.includes("🗜️") || heading.includes("Compaction")) return { column: "input", subtype: "compaction" };
   if (heading.includes("🧠") || heading.includes("Thinking")) return { column: "assistant", subtype: "thinking" };
   if (heading.includes("📜") || heading.includes("Skill Prompt")) return { column: "tool", subtype: "skill-prompt" };
   if (heading.includes("🧑") && heading.includes("User")) return { column: "input", subtype: "user" };
@@ -402,6 +407,12 @@ function buildAgentHrefMap(mdPath: string): Map<string, string> {
   };
   walk(path.join(dir, `${base}-subagents`));
   walk(path.join(dir, `${base}-workflows`));
+  // A transcript that is itself a subagent lives *inside* one of those dirs, and
+  // can spawn its own children (OpenCode nests arbitrarily deep). Scanning its
+  // own directory resolves those sibling links too.
+  if (/-(subagents|workflows)$/.test(path.basename(dir)) || /-(subagents|workflows)$/.test(path.basename(path.dirname(dir)))) {
+    walk(dir);
+  }
   return map;
 }
 
@@ -577,6 +588,7 @@ function generateHtml(mdPath: string): string {
   --teammate-accent: #bc8cff;
   --command-accent: #768390;
   --notif-accent: #56d4dd;
+  --compaction-accent: #d29922;
   --assistant-accent: #58a6ff;
   --thinking-accent: #8957e5;
   --tool-accent: #d29922;
@@ -712,6 +724,8 @@ body {
 .card[data-subtype="tool-result"] { border-left: 3px solid var(--tool-result); }
 .card[data-subtype="tool-error"] { border-left: 3px solid var(--tool-error); }
 .card[data-subtype="skill-prompt"] { border-left: 3px solid var(--skill-accent); }
+.card[data-subtype="compaction"] { border-left: 3px solid var(--compaction-accent); border-style: dashed; }
+.card[data-subtype="compaction"] .card-title { color: var(--compaction-accent); }
 
 /* Teammate cards get a dashed accent + tinted title so inter-agent
    messages read differently from the human's own input. */

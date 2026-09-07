@@ -92,11 +92,16 @@ function row(e: IndexEntry, isChild = false): string {
 </tr>`;
 }
 
+// A row plus every descendant beneath it. Nesting can go deeper than one level
+// — an OpenCode subagent can spawn its own subagents — so this recurses rather
+// than assuming a single generation of children.
+function rowsFor(e: IndexEntry, isChild = false): string[] {
+  return [row(e, isChild), ...(e.children ?? []).flatMap((c) => rowsFor(c, true))];
+}
+
 export function generateIndexHtml(entries: IndexEntry[], heading = "Conversations"): string {
   const withMetrics = entries.filter((e) => e.hasMetrics).length;
-  const rows = entries
-    .map((e) => [row(e), ...(e.children ?? []).map((c) => row(c, true))].join("\n"))
-    .join("\n");
+  const rows = entries.flatMap((e) => rowsFor(e)).join("\n");
 
   return `<!DOCTYPE html>
 <html lang="en">

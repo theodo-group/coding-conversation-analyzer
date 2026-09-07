@@ -2,11 +2,11 @@
 #
 # cca — unified CLI for coding-conversation-analyzer.
 #
-#   cca export <target-dir> [--full] [--claude-dir <path>]   Export conversations to markdown
-#   cca generate-html <input> [output]                       Render a markdown export to HTML
-#   cca update                                               Update to the latest version
-#   cca --version                                            Print the version
-#   cca --help                                               Show this help
+#   cca export <target-dir> [options]    Export conversations to markdown
+#   cca generate-html <input> [output]   Render a markdown export to HTML
+#   cca update                           Update to the latest version
+#   cca --version                        Print the version
+#   cca --help                           Show this help
 #
 # Version is unified project-wide; see package.json and CLAUDE.md → Versioning.
 
@@ -47,11 +47,18 @@ usage() {
 cca $(version) — coding-conversation-analyzer
 
 Usage:
-  cca export <target-dir> [--full] [--claude-dir <path>]   Export conversations to markdown
-  cca generate-html <input> [output]                       Render a markdown export to HTML
-  cca update                                               Update to the latest version
-  cca --version                                            Print the version
-  cca --help                                               Show this help
+  cca export <target-dir> [options]    Export conversations to markdown
+  cca generate-html <input> [output]   Render a markdown export to HTML
+  cca update                           Update to the latest version
+  cca --version                        Print the version
+  cca --help                           Show this help
+
+Export options:
+  --full                          Do not truncate long messages
+  --source claude|opencode|auto   Which agent's history to read. Default auto:
+                                  every source with sessions for this project
+  --claude-dir <path>             Override ~/.claude
+  --opencode-dir <path>           Override \$XDG_DATA_HOME/opencode
 EOF
 }
 
@@ -59,7 +66,7 @@ cmd="${1:-}"
 case "$cmd" in
   export)
     shift
-    exec "$TSX" "$ROOT/src/export-claude-history.ts" "$@"
+    exec "$TSX" "$ROOT/src/export-history.ts" "$@"
     ;;
   generate-html)
     shift

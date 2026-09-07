@@ -1,7 +1,11 @@
 # claude-conversation-analyzer
 
-Export [Claude Code](https://claude.com/claude-code) conversations from `~/.claude/projects/`
-into readable markdown, then turn them into an interactive HTML viewer for analysis.
+Export coding-agent conversations into readable markdown, then turn them into an
+interactive HTML viewer for analysis. Two agents are supported, and both land in the
+same format so a single index can list them side by side:
+
+- **[Claude Code](https://claude.com/claude-code)** — the jsonl transcripts under `~/.claude/projects/`
+- **[OpenCode](https://opencode.ai)** — the SQLite database at `$XDG_DATA_HOME/opencode/opencode.db`
 
 Two steps, both run through the **`cca`** CLI (see [Install](#install)):
 
@@ -11,7 +15,7 @@ Two steps, both run through the **`cca`** CLI (see [Install](#install)):
    interactive **discussion viewer**, a metrics **dashboard**, and a token/cost/time
    **simulation** page.
 
-Under the hood these are two standalone, self-contained TypeScript scripts using only
+Under the hood these are standalone, self-contained TypeScript scripts using only
 Node built-ins, run with [`tsx`](https://github.com/privatenumber/tsx) — no build step.
 
 ## Install
@@ -62,12 +66,40 @@ Then run the scripts with `npm run export` / `npm run view`, or a global `tsx` (
 cca export <output-dir>                      # if installed via the one-liner
 # or, from a clone:
 npm run export -- <output-dir>
-# or: tsx src/export-claude-history.ts <output-dir>
+# or: tsx src/export-history.ts <output-dir>
 ```
 
 Exports conversations including tool results, thinking blocks, subagent conversations,
 actual Edit diffs, and YAML frontmatter. Incremental — re-running only exports new or
 changed conversations.
+
+### Choosing a source
+
+By default (`--source auto`) every agent that has sessions for the current git root is
+exported, so a task done twice — once in Claude Code, once in OpenCode — shows up as two
+rows in the same index, directly comparable. Restrict it with `--source`:
+
+```bash
+cca export <output-dir> --source claude     # Claude Code only
+cca export <output-dir> --source opencode   # OpenCode only
+```
+
+OpenCode's database is read **read-only** through Node's built-in `node:sqlite`, which is
+safe while OpenCode is running. Filenames are unambiguous per source: Claude sessions use
+their 8-character uuid prefix, OpenCode sessions an `oc`-tagged session id
+(`…-ocf850f7be.md`).
+
+A few things differ because the sources differ, and the reports say so rather than
+pretending otherwise:
+
+| | Claude Code | OpenCode |
+| --- | --- | --- |
+| Branch | recorded per message | **not recorded** — read from the working tree now, and stamped `branchSource: "live-git"` |
+| Timeline band | permission mode (Normal / Plan / Auto-accept / Bypass) | active **agent / mode** (build, plan, explore, …) — a different thing, labelled differently |
+| Diffs | approximated from the edit's before/after strings | real unified diffs with exact add/delete counts |
+| Subagent links | scraped from the spawn's result text | stated outright, and nested arbitrarily deep |
+| Task notifications / workflows | present | no analog — simply never emitted |
+| Compaction | — | marked on the transcript and the timeline (🗜️) |
 
 Long tool results are truncated by default. Pass `--full` to export them in full:
 
@@ -75,12 +107,15 @@ Long tool results are truncated by default. Pass `--full` to export them in full
 cca export <output-dir> --full
 ```
 
-By default it reads Claude Code's history from `~/.claude`. Pass `--claude-dir <path>`
-(or `--claude-dir=<path>`, `~` is expanded) to read from a different location — useful
-for a non-standard `CLAUDE_CONFIG_DIR`, a backup, or another machine's history:
+By default it reads Claude Code's history from `~/.claude` and OpenCode's from
+`$XDG_DATA_HOME/opencode` (i.e. `~/.local/share/opencode`). Pass `--claude-dir <path>` or
+`--opencode-dir <path>` (`=<path>` also works, `~` is expanded) to read from a different
+location — useful for a non-standard `CLAUDE_CONFIG_DIR`, a backup, or another machine's
+history:
 
 ```bash
 cca export <output-dir> --claude-dir /path/to/.claude
+cca export <output-dir> --opencode-dir /path/to/opencode
 ```
 
 Output structure:
@@ -177,6 +212,7 @@ checkbox, since it has no metrics or dashboard.
     chip); local commands (⌨️, e.g. `/compact`); and subagent task notifications (🔔)
   - **Assistant**: replies (🤖) and thinking (🧠)
   - **Tools**: calls (⚪️), results (🟢), errors (🔴), and skill prompts (📜)
+  - Context compaction, where the source records it, is marked in the Input column (🗜️)
 - Per-subtype counters in each column header (e.g. `14 🧑 · 14 🤝 · 4 ⌨️ · 3 🔔`)
 - Collapsible cards with turn-based grouping
 - Navigation buttons to jump between messages of the same subtype
@@ -189,13 +225,23 @@ Same dark theme, a single-page metrics report generated from the JSON sidecar:
 
 - Summary tiles: duration, human turns, lines added/removed, tool-call breakdown
 - **Cost & context** chart — spend and context-window usage over the conversation,
-  per model. Cost is **computed** from token usage (Anthropic list prices; cache-write
-  at 1.25× input, cache-read at 0.1× input) since it isn't stored in the transcript
-- Message timeline with a permission-mode band and a thinking-blocks toggle
+  per model. Cost is **computed** from token usage, since it isn't stored in the
+  transcript: prices and context limits come from a [models.dev](https://models.dev)-shaped
+  catalog (`src/models.ts`) with each model's own explicit cache-read/cache-write prices.
+  Models from providers the built-in catalog doesn't cover ride along in the export's
+  sidecar, so an OpenCode session on any provider still prices correctly — including
+  free models, which show an honest `$0`. The context-window axis is the largest limit
+  across the models the session actually used
+- Message timeline with a thinking-blocks toggle and a band showing the permission mode
+  (Claude Code) or the active agent/mode (OpenCode)
 - Spawned subagents, with per-model token totals
 - Generated diffs from `Write`/`Edit` tool calls
-- **Claude setup** panel — the agents and skills active for the run (read from the
-  current `.claude` config, so it reflects config *now*, not necessarily at run time)
+- **Setup** panel — the agents and skills active for the run. Read from the current
+  config (`.claude` for Claude Code; `agent/`, `command/` and `opencode.json(c)` plus
+  `AGENTS.md` for OpenCode), so it reflects config *now*, not necessarily at run time
+
+Refresh the price catalog from models.dev with `npm run sync-models` — it prints entries
+for review; the checked-in catalog stays authoritative so exports are reproducible.
 
 ## Requirements
 

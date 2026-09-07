@@ -15,6 +15,14 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import {
+  DEFAULT_MODEL_ID,
+  costOf,
+  resolveModel,
+  resolvedCosts,
+  withCatalog,
+  type ModelEntry,
+} from "./models.ts";
 
 // --- Sidecar shape (mirror of export-claude-history.ts) ---
 
@@ -49,28 +57,18 @@ interface Sidecar {
   timeZone: string;
   timeline: TimelinePoint[];
   subagentUsageByModel: Record<string, Usage>;
+  // Additive fields; absent on sidecars written before OpenCode support.
+  source?: "claude-code" | "opencode";
+  models?: Record<string, ModelEntry>;
 }
 
-// --- Pricing (USD per 1M tokens) — mirror of generate-dashboard.ts ---
-// cache-write = 1.25x input, cache-read = 0.1x input.
-const PRICES: Array<{ match: string; in: number; out: number }> = [
-  { match: "fable", in: 10, out: 50 },
-  { match: "mythos", in: 10, out: 50 },
-  { match: "opus", in: 5, out: 25 },
-  { match: "sonnet", in: 3, out: 15 },
-  { match: "haiku", in: 1, out: 5 },
-];
-const DEFAULT_PRICE = { in: 5, out: 25 };
-
-function priceFor(model: string): { in: number; out: number } {
-  const m = model.toLowerCase();
-  return PRICES.find((p) => m.includes(p.match)) ?? DEFAULT_PRICE;
-}
-
-function costOf(u: Usage, model: string): number {
-  const p = priceFor(model);
-  return (u.in * p.in + u.out * p.out + u.cw * 1.25 * p.in + u.cr * 0.1 * p.in) / 1_000_000;
-}
+// --- Pricing ---
+// Prices come from the shared models.dev-shaped catalog (`models.ts`), merged
+// with any per-export entries the sidecar carried for providers the built-in
+// catalog doesn't know. The browser gets a *resolved* price per model string it
+// will actually see (see `costs` in the payload), so the client-side recompute
+// is a plain lookup with no matching rules or derived multipliers to keep in
+// sync with the server.
 
 // --- Formatting ---
 
@@ -382,6 +380,7 @@ function buildSim(s: Sidecar): SimData {
   // credits the 1.25× write savings, and a normal cached read credits 0.1×. The
   // proportional split also self-caps: the summed reductions can't exceed a
   // call's own cw/cr. This mirrors the browser's recompute exactly.
+  const catalog = withCatalog(s.models);
   const recost = (excluded: Set<number>): number => {
     const dCW: number[] = new Array(calls.length).fill(0);
     const dCR: number[] = new Array(calls.length).fill(0);
@@ -399,7 +398,7 @@ function buildSim(s: Sidecar): SimData {
     for (const c of calls) {
       const cw = Math.max(0, c.cw - dCW[c.ord]!);
       const cr = Math.max(0, c.cr - dCR[c.ord]!);
-      cost += costOf({ in: c.in, out: c.out, cw, cr }, c.model);
+      cost += costOf({ in: c.in, out: c.out, cw, cr }, c.model, catalog);
     }
     return cost;
   };
@@ -451,7 +450,8 @@ function buildSim(s: Sidecar): SimData {
   }
 
   let subagentCost = 0;
-  for (const [model, u] of Object.entries(s.subagentUsageByModel)) subagentCost += costOf(u, model);
+  for (const [model, u] of Object.entries(s.subagentUsageByModel))
+    subagentCost += costOf(u, model, withCatalog(s.models));
 
   return { calls, tools, rows, subagentCost, duration: s.durationSeconds || 0 };
 }
@@ -543,8 +543,11 @@ export function generateSimulationHtml(s: Sidecar): string {
     tools: sim.tools
       .filter((t) => t.weight !== null)
       .map((t) => ({ id: t.id, w: t.weight, e: t.entry, x: t.exit, wall: t.wall })),
-    prices: PRICES,
-    def: DEFAULT_PRICE,
+    // Resolved USD-per-1M prices for exactly the models in this session, so the
+    // client looks a model up instead of re-implementing resolution.
+    costs: resolvedCosts(sim.calls.map((c) => c.model), withCatalog(s.models)),
+    // Fallback for a model string that somehow isn't in the map above.
+    def: resolveModel(DEFAULT_MODEL_ID, withCatalog(s.models)).cost,
     subagentCost: sim.subagentCost,
     duration: sim.duration,
   };
@@ -695,14 +698,9 @@ ${rowsHtml}
   var CALLS = DATA.calls, TOOLS = DATA.tools;
   var toolById = {}; TOOLS.forEach(function (t) { toolById[t.id] = t; });
 
-  function priceFor(model) {
-    var m = (model || '').toLowerCase();
-    for (var i = 0; i < DATA.prices.length; i++) if (m.indexOf(DATA.prices[i].match) !== -1) return DATA.prices[i];
-    return DATA.def;
-  }
   function costOf(u, model) {
-    var p = priceFor(model);
-    return (u.in * p.in + u.out * p.out + u.cw * 1.25 * p.in + u.cr * 0.1 * p.in) / 1e6;
+    var p = DATA.costs[model] || DATA.def;
+    return (u.in * p.input + u.out * p.output + u.cw * p.cache_write + u.cr * p.cache_read) / 1e6;
   }
 
   // Recompute totals given a Set of excluded tool ids. Each excluded tool's

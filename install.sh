@@ -110,7 +110,7 @@ rm -f "$BIN_DIR/export-claude-history" "$BIN_DIR/generate-html"
 
 make_cca_wrapper
 # Kept for backward compatibility; `cca export` / `cca generate-html` are preferred.
-make_wrapper "cca-export"       "export-claude-history.ts"
+make_wrapper "cca-export"       "export-history.ts"
 make_wrapper "cca-generate-html" "generate-html.ts"
 
 # Report the installed version (single source of truth: package.json).

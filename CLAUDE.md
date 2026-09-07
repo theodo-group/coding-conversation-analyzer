@@ -5,31 +5,68 @@ for notes on verifying visual/UI changes.
 
 ## Project
 
-Export Claude Code conversations to markdown and render them as an interactive
+Export coding-agent conversations to markdown and render them as an interactive
 HTML analyzer. Source lives in `src/`, run via `tsx` (no build step).
 
 The unified CLI is **`cca`** (`bin/cca`), a bash dispatcher with three
 subcommands:
 
-- `cca export …` → `src/export-claude-history.ts`
+- `cca export …` → `src/export-history.ts`
 - `cca generate-html …` → `src/generate-html.ts`
 - `cca update` → re-runs `install.sh` to self-update (a no-op when up to date)
 
-`cca-export` and `cca-generate-html` remain as thin backward-compat aliases.
+`cca-export` and `cca-generate-html` remain as thin backward-compat aliases, as
+does `src/export-claude-history.ts` (it just imports `export-history.ts`).
 Install/update with `install.sh`.
+
+## Sources
+
+The exporter is source-agnostic. `src/sources/` holds one adapter per coding
+agent, each turning what that agent stores on disk into the neutral intermediate
+in `sources/types.ts`; `export-history.ts` renders markdown and builds the
+dashboard sidecar from that intermediate and knows nothing about either format.
+
+- `sources/claude.ts` — Claude Code's jsonl transcripts under `~/.claude/projects/`
+- `sources/opencode.ts` — OpenCode's SQLite database, read-only via `node:sqlite`
+
+Adding a source means writing an adapter, not touching the exporter. Anything
+source-specific — tool names, input key casing, how a human turn is told apart
+from an injected one — belongs in the adapter, which normalises onto the
+canonical tool names (`Read`, `Edit`, `Bash`, `Agent`, …) and snake_case input
+keys (`file_path`, `old_string`, …) the shared code formats against.
+
+**Regression rule:** a change to the shared exporter must keep Claude Code
+output byte-identical. Verify by exporting a frozen `~/.claude` copy before and
+after (`cca export <dir> --claude-dir <frozen> --source claude`) and diffing.
+
+`docs/opencode-export-spec.md` records the OpenCode data model and the design
+decisions behind the adapter.
+
+## Pricing
+
+`src/models.ts` is the single price/limit catalog, using models.dev field names
+verbatim (`limit.{context,output}`, `cost.{input,output,cache_read,cache_write}`)
+— the same shape OpenCode ships at `~/.cache/opencode/models.json`, so entries
+copy across in either direction. Never derive cache prices from the input price;
+the ratio does not hold for every model. `npm run sync-models` prints a refreshed
+catalog literal for review, but the checked-in catalog stays authoritative so
+exports are reproducible without OpenCode installed.
+
+Models from providers the catalog doesn't know are embedded per export in the
+sidecar's `models` field and merged in at render time via `withCatalog()`.
 
 ## Versioning
 
 The project follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
-The current version is **1.1.0**.
+The current version is **1.2.0**.
 
 **Single source of truth.** The version lives in exactly one place — the
 `version` field of `package.json`. Everything else derives from it:
 
 - `src/version.ts` reads `package.json` and exports `VERSION` plus a
   `handleVersionFlag()` helper. Import from here; never hard-code a version.
-- The CLIs support `--version` / `-v`: `cca --version` → `1.1.0`; the
-  subcommands report their own name, e.g. `cca export --version` → `cca-export 1.1.0`.
+- The CLIs support `--version` / `-v`: `cca --version` → `1.2.0`; the
+  subcommands report their own name, e.g. `cca export --version` → `cca-export 1.2.0`.
 - Every export stamps the tool version into the sidecar marker of the generated
   markdown: `<!-- cca:data v=<data-format> tool=<version> -->`.
 - `install.sh` prints the installed version after installing.
@@ -39,7 +76,7 @@ The current version is **1.1.0**.
 | Version | Where | Bump when |
 | --- | --- | --- |
 | Tool version (`VERSION`) | `package.json` | Any user-facing change, per semver below |
-| Data-format version (`CCA_DATA_VERSION`) | `src/export-claude-history.ts` | Only when the embedded sidecar JSON **shape** changes incompatibly |
+| Data-format version (`CCA_DATA_VERSION`) | `src/export-history.ts` | Only when the embedded sidecar JSON **shape** changes incompatibly |
 
 The `version` field inside the sidecar JSON is unrelated — it is the Claude Code
 version that produced the source conversation.

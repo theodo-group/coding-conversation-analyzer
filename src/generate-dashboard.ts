@@ -6,6 +6,14 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import {
+  contextLimitOf,
+  costOf,
+  resolveModel,
+  withCatalog,
+  type ModelCatalog,
+  type ModelEntry,
+} from "./models.ts";
 
 // --- Sidecar shape (mirror of export-claude-history.ts) ---
 
@@ -92,57 +100,76 @@ interface Sidecar {
   subagentUsageByModel: Record<string, Usage>;
   diffs: DiffEntry[];
   setup: { project: SetupItem[]; user: SetupItem[] };
+  // Additive fields; absent on sidecars written before OpenCode support.
+  source?: "claude-code" | "opencode";
+  models?: Record<string, ModelEntry>;
+  branchSource?: "snapshot" | "live-git" | "unknown";
 }
 
-// --- Pricing (USD per 1M tokens) ---
-// Anthropic published prices; cache-write = 1.25x input, cache-read = 0.1x input.
-const PRICES: Array<{ match: string; in: number; out: number }> = [
-  { match: "fable", in: 10, out: 50 },
-  { match: "mythos", in: 10, out: 50 },
-  { match: "opus", in: 5, out: 25 },
-  { match: "sonnet", in: 3, out: 15 },
-  { match: "haiku", in: 1, out: 5 },
-];
+// --- Pricing ---
+// Prices and context limits come from the shared models.dev-shaped catalog in
+// `models.ts`, merged with any per-export entries the sidecar carried for
+// providers the built-in catalog doesn't know (OpenCode exports).
 
-function priceFor(model: string): { in: number; out: number } {
-  const m = model.toLowerCase();
-  return PRICES.find((p) => m.includes(p.match)) ?? { in: 5, out: 25 };
-}
-
-function costOf(usage: Usage, model: string): number {
-  const p = priceFor(model);
-  return (
-    (usage.in * p.in + usage.out * p.out + usage.cw * 1.25 * p.in + usage.cr * 0.1 * p.in) / 1_000_000
-  );
+function catalogOf(s: Sidecar): ModelCatalog {
+  return withCatalog(s.models);
 }
 
 // --- Model colors (align with the discussion viewer accents) ---
-const MODEL_COLOR_BY_MATCH: Array<{ match: string; color: string }> = [
-  { match: "opus", color: "#58a6ff" },
-  { match: "sonnet", color: "#3fb950" },
-  { match: "haiku", color: "#bc8cff" },
-  { match: "fable", color: "#ffa657" },
-  { match: "mythos", color: "#f778ba" },
-];
-const FALLBACK_COLORS = ["#56d4dd", "#d29922", "#ff7b72", "#8957e5"];
+// Keyed by the family the catalog resolves, so every Opus variant shares one
+// colour and unknown providers get a stable hue hashed from their id rather
+// than all collapsing onto the same fallback.
+const MODEL_COLOR_BY_FAMILY: Record<string, string> = {
+  "claude-opus": "#58a6ff",
+  "claude-sonnet": "#3fb950",
+  "claude-haiku": "#bc8cff",
+  "claude-fable": "#ffa657",
+  synthetic: "#6e7681",
+};
 
-function buildModelColors(models: string[]): Record<string, string> {
+// Deterministic hue for a model with no known family, so the same provider/model
+// keeps its colour across reports.
+function hashedColor(model: string): string {
+  let h = 0;
+  for (let i = 0; i < model.length; i++) h = (h * 31 + model.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360}, 62%, 62%)`;
+}
+
+function buildModelColors(models: string[], catalog: ModelCatalog): Record<string, string> {
   const out: Record<string, string> = {};
-  let fb = 0;
   for (const model of models) {
-    const m = model.toLowerCase();
-    const hit = MODEL_COLOR_BY_MATCH.find((c) => m.includes(c.match));
-    out[model] = hit ? hit.color : FALLBACK_COLORS[fb++ % FALLBACK_COLORS.length]!;
+    const family = resolveModel(model, catalog).family;
+    out[model] = MODEL_COLOR_BY_FAMILY[family] ?? hashedColor(model);
   }
   return out;
 }
 
+// The band above the timeline shows what the session was *in* at each moment.
+// For Claude Code that is the permission mode; OpenCode has no such field, so
+// the same band carries its agent/mode instead (§4.2 of the OpenCode spec) —
+// two different things, so they get separate labels and a separate caption.
 const MODE_META: Record<string, { label: string; color: string }> = {
   default: { label: "⌨️ Normal", color: "#768390" },
   acceptEdits: { label: "⚡ Auto-accept", color: "#d29922" },
   plan: { label: "📝 Plan", color: "#8957e5" },
   bypassPermissions: { label: "⏭️ Bypass", color: "#da3633" },
 };
+
+const AGENT_MODE_META: Record<string, { label: string; color: string }> = {
+  build: { label: "⌨️ Build", color: "#768390" },
+  plan: { label: "📝 Plan", color: "#8957e5" },
+  explore: { label: "🔎 Explore", color: "#56d4dd" },
+  general: { label: "🧩 General", color: "#d29922" },
+};
+
+// Label + colour for one band segment. Custom OpenCode agents aren't in the
+// table, so they get their name and a hue hashed from it.
+function modeMeta(mode: string, source: Sidecar["source"]): { label: string; color: string } {
+  if (source === "opencode") {
+    return AGENT_MODE_META[mode] ?? { label: mode, color: hashedColor(mode) };
+  }
+  return MODE_META[mode] ?? { label: mode, color: "#768390" };
+}
 
 // --- Formatting ---
 
@@ -212,11 +239,15 @@ interface CostContext {
   totalCost: number;
   peakContext: number;
   models: string[];
+  // Largest context window across the models this session used — the ceiling
+  // the context curve is drawn against.
+  contextLimit: number;
   // Cumulative-cost + context series over the usage points, in time order.
   series: Array<{ t: number; cum: number; ctx: number }>;
 }
 
 function computeCost(s: Sidecar): CostContext {
+  const catalog = catalogOf(s);
   const modelSet = new Set<string>();
   // One API response is emitted as several timeline points sharing the *same*
   // `usage` (the assistant text point plus each of its tool_use siblings).
@@ -239,7 +270,7 @@ function computeCost(s: Sidecar): CostContext {
   const series: Array<{ t: number; cum: number; ctx: number }> = [];
   for (const p of usagePoints) {
     modelSet.add(p.model);
-    cum += costOf(p.usage, p.model);
+    cum += costOf(p.usage, p.model, catalog);
     const ctx = p.usage.in + p.usage.cw + p.usage.cr;
     if (ctx > peak) peak = ctx;
     series.push({ t: p.t, cum, ctx });
@@ -249,7 +280,7 @@ function computeCost(s: Sidecar): CostContext {
   let subagentCost = 0;
   for (const [model, u] of Object.entries(s.subagentUsageByModel)) {
     modelSet.add(model);
-    subagentCost += costOf(u, model);
+    subagentCost += costOf(u, model, catalog);
   }
 
   return {
@@ -258,6 +289,7 @@ function computeCost(s: Sidecar): CostContext {
     totalCost: mainCost + subagentCost,
     peakContext: peak,
     models: [...modelSet].sort(),
+    contextLimit: contextLimitOf([...modelSet], catalog),
     series,
   };
 }
@@ -298,7 +330,8 @@ function costContextChart(s: Sidecar, cc: CostContext): string {
   const dur = s.durationSeconds || 1;
 
   const costMax = niceMax(cc.mainCost) || 1;
-  const ctxLimit = cc.peakContext > 200_000 ? 1_000_000 : 200_000;
+  // Ceiling from the models actually used; never below the peak the session hit.
+  const ctxLimit = Math.max(cc.contextLimit, cc.peakContext);
 
   const x = (t: number) => padL + (t / dur) * (W - padL - padR);
   const yCost = (c: number) => H - padB - (c / costMax) * (H - padT - padB);
@@ -351,7 +384,7 @@ function timelineTrack(s: Sidecar, modelColors: Record<string, string>): string 
 
   const modeSegs = s.permissionSegments
     .map((seg) => {
-      const meta = MODE_META[seg.mode] ?? { label: seg.mode, color: "#768390" };
+      const meta = modeMeta(seg.mode, s.source);
       const left = pct(seg.start);
       const width = (((seg.end - seg.start) / dur) * 100).toFixed(3);
       return `<div class="mode-seg" style="left:${left}%; width:${width}%; background:${meta.color}" title="${attr(meta.label)} · ${fmtOffset(seg.start)}–${fmtOffset(seg.end)}"><span>${escape(meta.label)}</span></div>`;
@@ -484,6 +517,7 @@ function messageSection(s: Sidecar, modelColors: Record<string, string>): string
   return `<div class="row">
   <div class="row-label">
     <strong>Main thread message history</strong>
+    <span>${s.source === "opencode" ? "Band: active agent / mode." : "Band: permission mode."}</span>
     <div class="legend">${modelLegend}<span class="chip chip-prompt"><i></i>prompt</span></div>
     <button class="toggle-btn" id="thinking-toggle" type="button" aria-pressed="true">Hide 🧠 thinking</button>
   </div>
@@ -557,7 +591,10 @@ function diffSection(s: Sidecar): string {
 
 export function generateDashboardHtml(s: Sidecar): string {
   const cc = computeCost(s);
-  const modelColors = buildModelColors(cc.models.length ? cc.models : ["claude-opus-4-8"]);
+  const modelColors = buildModelColors(
+    cc.models.length ? cc.models : ["claude-opus-4-8"],
+    catalogOf(s),
+  );
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -642,6 +679,10 @@ body {
 .marker.k-prompt::before { content: ''; position: absolute; top: -3px; left: -3px; width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
 .marker.k-thinking { opacity: 0.7; height: 40%; }
 .marker.k-tool_result { opacity: 0.35; height: 30%; }
+/* Auto/manual context compaction (OpenCode). A full-height amber rule, so the
+   point where the context curve drops is legible on the track too. */
+.marker.k-compaction { height: 100%; width: 2px; background: #d29922; }
+.marker.k-compaction::before { content: ''; position: absolute; top: -3px; left: -3px; width: 8px; height: 8px; border-radius: 2px; background: #d29922; }
 .marker:hover { box-shadow: 0 0 0 1px var(--mk); z-index: 5; }
 .track.hide-thinking .is-thinking { display: none; }
 .time-axis { position: relative; height: 16px; margin-top: 4px; }

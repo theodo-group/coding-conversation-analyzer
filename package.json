@@ -1,20 +1,22 @@
 {
   "name": "claude-conversation-analyzer",
-  "version": "1.1.0",
-  "description": "Export Claude Code conversations to markdown and view them in an interactive HTML analyzer.",
+  "version": "1.2.0",
+  "description": "Export Claude Code and OpenCode conversations to markdown and view them in an interactive HTML analyzer.",
   "type": "module",
   "bin": {
     "cca": "bin/cca",
-    "cca-export": "src/export-claude-history.ts",
+    "cca-export": "src/export-history.ts",
     "cca-generate-html": "src/generate-html.ts"
   },
   "scripts": {
-    "export": "tsx src/export-claude-history.ts",
+    "export": "tsx src/export-history.ts",
+    "sync-models": "tsx scripts/sync-models.ts",
     "view": "tsx src/generate-html.ts"
   },
   "keywords": [
     "claude",
     "claude-code",
+    "opencode",
     "conversation",
     "export",
     "viewer",
