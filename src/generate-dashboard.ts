@@ -664,7 +664,7 @@ body {
 .setup-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .setup-item { min-width: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
 .setup-name { display: block; font-size: 13px; font-weight: 600; }
-.setup-desc { display: block; font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-desc { display: block; font-size: 11px; color: var(--text-muted); overflow-wrap: break-word; }
 
 /* Diffs */
 .diff-entries { display: grid; gap: 8px; }
