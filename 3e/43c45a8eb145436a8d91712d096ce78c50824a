@@ -1,0 +1,21 @@
+package.json
+  s_477cf3a5afe9c1::t_44de3f0bc37a8c 2
+package-lock.json
+  s_477cf3a5afe9c1::t_4f42896645ad2d 2-3,8-9,12-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3e43c45a8eb145436a8d91712d096ce78c50824a",
+  "prompts": {},
+  "sessions": {
+    "s_477cf3a5afe9c1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89b58586-02fd-4417-9a4e-dbae0c03fc29",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
