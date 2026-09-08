@@ -16,7 +16,7 @@ import {
   type ModelCatalog,
 } from "./models.ts";
 import type { Sidecar, TimelinePoint } from "./sidecar.ts";
-import type { SetupItem, Usage } from "./sources/types.ts";
+import type { SetupItem, SourceId, Usage } from "./sources/types.ts";
 
 // --- Pricing ---
 // Prices and context limits come from the shared models.dev-shaped catalog in
@@ -462,8 +462,66 @@ function messageSection(s: Sidecar, modelColors: Record<string, string>): string
 </div>`;
 }
 
-function setupColumn(scope: string, title: string, items: SetupItem[]): string {
-  const group = (kind: "agent" | "skill", label: string) => {
+// Each source keeps its configuration in its own directories under its own
+// names: an OpenCode plugin has no Claude Code analog, a Cursor rule has none
+// in either. The panel is one shape driven by this table, so every source
+// shows the paths it actually reads and only the kinds it can actually have.
+const SETUP_CHROME: Record<
+  SourceId,
+  {
+    projectScope: string;
+    userScope: string;
+    note: string;
+    kinds: Array<[SetupItem["kind"], string]>;
+  }
+> = {
+  "claude-code": {
+    projectScope: ".claude/",
+    userScope: "~/.claude/",
+    note: "Read from the <code>.claude</code> directories at generation time",
+    kinds: [
+      ["agent", "Agents"],
+      ["skill", "Skills"],
+    ],
+  },
+  opencode: {
+    projectScope: ".opencode/",
+    userScope: "~/.config/opencode/",
+    note:
+      "Read at generation time from OpenCode's <code>agent/</code>, <code>command/</code> and " +
+      "<code>plugin/</code> directories, the agents declared in <code>opencode.json(c)</code>, the " +
+      "project's <code>AGENTS.md</code>, and the <code>~/.claude/skills</code> OpenCode reaches " +
+      "through its <code>external_directory</code> rules",
+    kinds: [
+      ["agent", "Agents"],
+      ["command", "Commands"],
+      ["plugin", "Plugins"],
+      ["skill", "Skills"],
+    ],
+  },
+  cursor: {
+    projectScope: ".cursor/",
+    userScope: "~/.cursor/",
+    note:
+      "Read from the <code>.cursor</code> directories at generation time — agents, skills, " +
+      "commands and always-on <code>rules/*.mdc</code>, plus the skills Cursor ships in " +
+      "<code>skills-cursor/</code>",
+    kinds: [
+      ["agent", "Agents"],
+      ["skill", "Skills"],
+      ["command", "Commands"],
+      ["rule", "Rules"],
+    ],
+  },
+};
+
+function setupColumn(
+  scope: string,
+  title: string,
+  items: SetupItem[],
+  kinds: Array<[SetupItem["kind"], string]>,
+): string {
+  const group = (kind: SetupItem["kind"], label: string) => {
     const list = items.filter((i) => i.kind === kind);
     const body = list.length
       ? `<div class="setup-list">${list
@@ -474,19 +532,21 @@ function setupColumn(scope: string, title: string, items: SetupItem[]): string {
   };
   return `<div class="setup-column">
   <div class="setup-column-head"><span class="setup-scope">${escape(scope)}</span><h3>${escape(title)}</h3></div>
-  ${group("agent", "Agents")}
-  ${group("skill", "Skills")}
+  ${kinds.map(([kind, label]) => group(kind, label)).join("\n  ")}
 </div>`;
 }
 
 function setupSection(s: Sidecar): string {
+  const source = s.source ?? "claude-code";
+  const chrome = SETUP_CHROME[source] ?? SETUP_CHROME["claude-code"];
+  const agent = SOURCE_LABEL[source] ?? "Agent";
   const count = s.setup.project.length + s.setup.user.length;
   return `<section class="panel">
-  <div class="section-head"><span class="eyebrow">Environment · Claude configuration</span><h2>Claude setup <span class="badge">${count} items</span></h2></div>
-  <div class="section-note">Read from the <code>.claude</code> directories at generation time — reflects current on-disk config, which may differ from what was active during the conversation.</div>
+  <div class="section-head"><span class="eyebrow">Environment · ${escape(agent)} configuration</span><h2>${escape(agent)} setup <span class="badge">${count} items</span></h2></div>
+  <div class="section-note">${chrome.note} — reflects current on-disk config, which may differ from what was active during the conversation.</div>
   <div class="setup-columns">
-    ${setupColumn(".claude/", "Local project", s.setup.project)}
-    ${setupColumn("~/.claude/", "User root", s.setup.user)}
+    ${setupColumn(chrome.projectScope, "Local project", s.setup.project, chrome.kinds)}
+    ${setupColumn(chrome.userScope, "User root", s.setup.user, chrome.kinds)}
   </div>
 </section>`;
 }

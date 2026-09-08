@@ -263,10 +263,14 @@ Same dark theme, a single-page metrics report generated from the JSON sidecar:
   (Claude Code), the active agent/mode (OpenCode) or the session mode (Cursor)
 - Spawned subagents, with per-model token totals
 - Generated diffs from `Write`/`Edit` tool calls
-- **Setup** panel — the agents and skills active for the run. Read from the current
-  config (`.claude` for Claude Code; `agent/`, `command/` and `opencode.json(c)` plus
-  `AGENTS.md` for OpenCode; `.cursor/` agents, skills, commands and rules plus Cursor's
-  built-in skills for Cursor), so it reflects config *now*, not necessarily at run time
+- **Setup** panel — the configuration active for the run, grouped by the kinds the
+  source actually has: agents and skills for Claude Code (`.claude/`, `~/.claude/`);
+  agents, commands, plugins and skills for OpenCode (`.opencode/`,
+  `~/.config/opencode/`, plus `opencode.json(c)` agents, `AGENTS.md`, and the
+  `~/.claude/skills` it reaches through `external_directory` rules); agents, skills,
+  commands and always-on `rules/*.mdc` for Cursor (`.cursor/`, `~/.cursor/`, including
+  Cursor's built-in skills). Read from the current config, so it reflects config *now*,
+  not necessarily at run time
 
 Refresh the price catalog from models.dev with `npm run sync-models` — it prints entries
 for review; the checked-in catalog stays authoritative so exports are reproducible.
