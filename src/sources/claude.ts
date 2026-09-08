@@ -366,9 +366,35 @@ export function frontmatter(file: string): { name?: string; description?: string
 
 export interface ClaudeAdapterOptions {
   projectRoot: string;
+  // Exact transcript-folder name under `<claudeDir>/projects`, overriding the
+  // one derived from `projectRoot`. Used for Conductor workspaces matched by
+  // folder name: an archived workspace's directory is gone — there is no root
+  // path to derive from — but its transcripts remain. `projectRoot` then only
+  // serves `setup()`.
+  projectDirName?: string;
   claudeDir?: string;
   // Injected so filename timestamps stay formatted in one place.
   formatTimestamp: (iso: string) => string;
+}
+
+export function resolveClaudeDir(claudeDir?: string): string {
+  return claudeDir
+    ? path.resolve(claudeDir.replace(/^~(?=$|\/)/, os.homedir()))
+    : path.join(os.homedir(), ".claude");
+}
+
+// Transcript folders recorded for Conductor workspaces of the named repo.
+// Matched on the sanitized folder *name* — any folder for a path containing
+// `conductor/workspaces/<repo>/` — rather than on directories that still exist,
+// because archiving a workspace deletes its directory (and its git worktree
+// registration) while the transcripts stay behind. The sanitization is lossy
+// (`/`, `_`, `.` all become `-`), so a repo whose name prefixes another's could
+// over-match; workspace names are single words, which keeps that theoretical.
+export function conductorProjectDirNames(claudeDir: string, repoName: string): string[] {
+  const projectsDir = path.join(claudeDir, "projects");
+  if (!fs.existsSync(projectsDir)) return [];
+  const marker = `-conductor-workspaces-${repoName.replace(/[/_.]/g, "-")}-`;
+  return fs.readdirSync(projectsDir).filter((name) => name.includes(marker)).sort();
 }
 
 export class ClaudeAdapter implements SourceAdapter {
@@ -380,13 +406,11 @@ export class ClaudeAdapter implements SourceAdapter {
 
   constructor(opts: ClaudeAdapterOptions) {
     this.opts = opts;
-    this.claudeDir = opts.claudeDir
-      ? path.resolve(opts.claudeDir.replace(/^~(?=$|\/)/, os.homedir()))
-      : path.join(os.homedir(), ".claude");
+    this.claudeDir = resolveClaudeDir(opts.claudeDir);
     this.projectPath = path.join(
       this.claudeDir,
       "projects",
-      opts.projectRoot.replace(/[/_.]/g, "-"),
+      opts.projectDirName ?? opts.projectRoot.replace(/[/_.]/g, "-"),
     );
     this.origin = this.projectPath;
   }

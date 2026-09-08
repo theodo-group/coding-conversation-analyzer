@@ -299,6 +299,9 @@ function defaultCursorRoots(): string[] {
 
 export interface CursorAdapterOptions {
   projectRoot: string;
+  // Other roots the same project's sessions may be keyed under (git worktrees,
+  // Conductor workspaces). One adapter — one database open — covers them all.
+  extraRoots?: string[];
   // Overrides the Cursor application-support root (mirrors `--claude-dir`).
   // Point it at a frozen copy to make an export reproducible.
   cursorDir?: string;
@@ -337,7 +340,7 @@ export class CursorAdapter implements SourceAdapter {
     this.origin = dbPath;
     this.db = openDatabase(dbPath);
     this.assertSchema();
-    this.workspaceIds = this.findWorkspaceIds(opts.projectRoot);
+    this.workspaceIds = this.findWorkspaceIds([opts.projectRoot, ...(opts.extraRoots ?? [])]);
   }
 
   // Cursor's schema is internal and unversioned, so check the two tables this
@@ -372,11 +375,11 @@ export class CursorAdapter implements SourceAdapter {
   // states the folder outright, so this is exact and needs no path-slug
   // guessing — and it is far cheaper than decoding one 50 KB `composerData` per
   // session just to read `workspaceIdentifier.uri.fsPath`.
-  private findWorkspaceIds(projectRoot: string): Set<string> {
+  private findWorkspaceIds(projectRoots: string[]): Set<string> {
     const ids = new Set<string>();
     const dir = path.join(this.root, "User", "workspaceStorage");
     if (!fs.existsSync(dir)) return ids;
-    const wanted = path.resolve(projectRoot);
+    const wanted = new Set(projectRoots.map((r) => path.resolve(r)));
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const file = path.join(dir, entry.name, "workspace.json");
@@ -385,7 +388,7 @@ export class CursorAdapter implements SourceAdapter {
         const cfg = JSON.parse(fs.readFileSync(file, "utf-8")) as { folder?: string };
         if (!cfg.folder) continue;
         const folder = path.resolve(decodeURIComponent(cfg.folder.replace(/^file:\/\//, "")));
-        if (folder === wanted) ids.add(entry.name);
+        if (wanted.has(folder)) ids.add(entry.name);
       } catch {
         /* an unreadable workspace.json just isn't this project's */
       }

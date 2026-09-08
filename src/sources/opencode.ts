@@ -200,6 +200,9 @@ class ModelsDevCache {
 
 export interface OpenCodeAdapterOptions {
   projectRoot: string;
+  // Other roots the same project's sessions may be keyed under (git worktrees,
+  // Conductor workspaces). One adapter — one database open — covers them all.
+  extraRoots?: string[];
   // Overrides the XDG data dir (mirrors `--claude-dir`).
   dataDir?: string;
   cacheDir?: string;
@@ -270,7 +273,7 @@ export class OpenCodeAdapter implements SourceAdapter {
           "opencode",
         );
     this.catalog = new ModelsDevCache(path.join(cacheDir, "models.json"));
-    this.projectIds = this.findProjectIds(opts.projectRoot);
+    this.projectIds = this.findProjectIds([opts.projectRoot, ...(opts.extraRoots ?? [])]);
   }
 
   private assertSchema(): void {
@@ -301,17 +304,19 @@ export class OpenCodeAdapter implements SourceAdapter {
 
   // A project is keyed by its worktree; worktrees and sandboxes of the same
   // project are additionally listed in `project_directory`.
-  private findProjectIds(root: string): string[] {
+  private findProjectIds(roots: string[]): string[] {
     const ids = new Set<string>();
-    for (const r of this.db.prepare("SELECT id FROM project WHERE worktree = ?").all(root) as Array<{
-      id: string;
-    }>) {
-      ids.add(r.id);
-    }
-    for (const r of this.db
-      .prepare("SELECT project_id FROM project_directory WHERE directory = ?")
-      .all(root) as Array<{ project_id: string }>) {
-      ids.add(r.project_id);
+    for (const root of roots) {
+      for (const r of this.db
+        .prepare("SELECT id FROM project WHERE worktree = ?")
+        .all(root) as Array<{ id: string }>) {
+        ids.add(r.id);
+      }
+      for (const r of this.db
+        .prepare("SELECT project_id FROM project_directory WHERE directory = ?")
+        .all(root) as Array<{ project_id: string }>) {
+        ids.add(r.project_id);
+      }
     }
     return [...ids];
   }

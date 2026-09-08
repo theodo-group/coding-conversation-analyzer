@@ -75,6 +75,23 @@ Exports conversations including tool results, thinking blocks, subagent conversa
 actual Edit diffs, and YAML frontmatter. Incremental — re-running only exports new or
 changed conversations.
 
+### Git worktrees and Conductor workspaces
+
+Coding agents key their history by working directory, but one project is not always one
+directory. Running from the main clone, the exporter also picks up sessions from:
+
+- **the repo's git worktrees** (`git worktree list`) — including the isolated worktrees
+  Claude Code itself creates for agents;
+- **[Conductor](https://conductor.build) workspaces** of the same repo. Conductor runs
+  every workspace as a worktree at `~/conductor/workspaces/<repo>/<name>`; sessions from
+  archived workspaces — whose directory and worktree registration are already gone, but
+  whose transcripts remain — are recovered too, by matching Claude Code's transcript
+  folder names.
+
+Everything lands flat in the same output tree and the same index as the main clone's
+sessions, grouped by branch as usual — one project, one report, regardless of how many
+workspaces did the work.
+
 ### Choosing a source
 
 By default (`--source auto`) every agent that has sessions for the current git root is

@@ -25,7 +25,12 @@ import type {
   TimelinePoint,
   ToolCounts,
 } from "./sidecar.ts";
-import { ClaudeAdapter } from "./sources/claude.ts";
+import { conductorRepoName, discoverProjectRoots } from "./project-roots.ts";
+import {
+  ClaudeAdapter,
+  conductorProjectDirNames,
+  resolveClaudeDir,
+} from "./sources/claude.ts";
 import { CursorAdapter } from "./sources/cursor.ts";
 import { OpenCodeAdapter } from "./sources/opencode.ts";
 import {
@@ -909,32 +914,74 @@ function parsePatchHunk(patch: string): DiffLine[] {
 
 // --- Main ---
 
-function buildAdapters(): SourceAdapter[] {
+// An adapter plus whether it reads the primary root. A project has one root per
+// source by default, but git worktrees and Conductor workspaces (worktrees at
+// `~/conductor/workspaces/<repo>/<name>`, each keying its own slice of the
+// history) give it several — all exported into the same target so workspace
+// sessions land in the main project's discussion set rather than going missing.
+interface BoundAdapter {
+  adapter: SourceAdapter;
+  primary: boolean;
+}
+
+function buildAdapters(): BoundAdapter[] {
   const wanted: SourceName[] = sourceArg === "auto" ? SOURCE_NAMES : [sourceArg as SourceName];
-  const out: SourceAdapter[] = [];
+  const roots = discoverProjectRoots(projectRoot);
+  const extraRoots = roots.slice(1);
+  const out: BoundAdapter[] = [];
   for (const name of wanted) {
     if (name === "claude") {
-      out.push(
-        new ClaudeAdapter({
-          projectRoot,
-          ...(claudeDirArg ? { claudeDir: claudeDirArg } : {}),
-          formatTimestamp,
-        }),
-      );
+      // One adapter per transcript folder: each root's own folder, plus every
+      // folder name-matched to a Conductor workspace of this repo — an archived
+      // workspace leaves no directory (and no worktree registration) to derive
+      // a root from, but its transcripts remain. Folders can be reached both
+      // ways, so dedupe on the resolved path.
+      const seen = new Set<string>();
+      const push = (adapter: ClaudeAdapter, primary: boolean): void => {
+        if (seen.has(adapter.origin)) return;
+        seen.add(adapter.origin);
+        out.push({ adapter, primary });
+      };
+      for (const root of roots) {
+        push(
+          new ClaudeAdapter({
+            projectRoot: root,
+            ...(claudeDirArg ? { claudeDir: claudeDirArg } : {}),
+            formatTimestamp,
+          }),
+          root === roots[0],
+        );
+      }
+      const claudeDir = resolveClaudeDir(claudeDirArg);
+      for (const dirName of conductorProjectDirNames(claudeDir, conductorRepoName(projectRoot))) {
+        push(
+          new ClaudeAdapter({
+            projectRoot,
+            projectDirName: dirName,
+            ...(claudeDirArg ? { claudeDir: claudeDirArg } : {}),
+            formatTimestamp,
+          }),
+          false,
+        );
+      }
       continue;
     }
     try {
-      out.push(
-        name === "opencode"
-          ? new OpenCodeAdapter({
-              projectRoot,
-              ...(openCodeDirArg ? { dataDir: openCodeDirArg } : {}),
-            })
-          : new CursorAdapter({
-              projectRoot,
-              ...(cursorDirArg ? { cursorDir: cursorDirArg } : {}),
-            }),
-      );
+      out.push({
+        adapter:
+          name === "opencode"
+            ? new OpenCodeAdapter({
+                projectRoot,
+                extraRoots,
+                ...(openCodeDirArg ? { dataDir: openCodeDirArg } : {}),
+              })
+            : new CursorAdapter({
+                projectRoot,
+                extraRoots,
+                ...(cursorDirArg ? { cursorDir: cursorDirArg } : {}),
+              }),
+        primary: true,
+      });
     } catch (e) {
       // An explicitly requested source that can't be opened is fatal; in
       // `auto` it just means this machine has no data for that agent.
@@ -951,18 +998,33 @@ function main() {
   console.log(`Export conversations → ${targetDir}\n`);
 
   const adapters = buildAdapters();
-  const bySource = adapters.map((a) => ({ adapter: a, refs: a.list() }));
+  const bySource = adapters.map(({ adapter, primary }) => ({
+    adapter,
+    primary,
+    refs: adapter.list(),
+  }));
   const allRefs = bySource.flatMap((s) => s.refs);
 
-  for (const { adapter, refs } of bySource) {
-    console.log(`  ${adapter.source}: ${refs.length} conversation(s) — ${adapter.origin}`);
+  // One line per location that holds conversations; empty worktree/Conductor
+  // locations are summarized so a project with many workspaces stays readable.
+  for (const { adapter, refs, primary } of bySource) {
+    if (primary || refs.length) {
+      console.log(`  ${adapter.source}: ${refs.length} conversation(s) — ${adapter.origin}`);
+    }
+  }
+  const emptyExtras = bySource.filter((s) => !s.primary && !s.refs.length).length;
+  if (emptyExtras) {
+    console.log(`  (+${emptyExtras} worktree/Conductor location(s) with no conversations)`);
   }
   console.log("");
 
   if (!allRefs.length) {
     console.error(
       `Error: no conversations found for ${projectRoot}.\n` +
-        bySource.map((s) => `  ${s.adapter.source}: ${s.adapter.origin}`).join("\n"),
+        bySource
+          .filter((s) => s.primary)
+          .map((s) => `  ${s.adapter.source}: ${s.adapter.origin}`)
+          .join("\n"),
     );
     process.exit(1);
   }
@@ -973,6 +1035,7 @@ function main() {
   let exportedCount = 0;
 
   for (const { adapter, refs } of bySource) {
+    if (!refs.length) continue;
     const setup = adapter.setup();
 
     for (const ref of refs) {

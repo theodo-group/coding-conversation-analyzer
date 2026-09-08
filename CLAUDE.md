@@ -33,6 +33,17 @@ on-disk formats.
 - `sources/sqlite.ts` — the shared read-only open (WAL replay, muted experimental
   warning) both SQLite adapters use
 
+**Multi-root projects.** One project can span several working directories:
+`src/project-roots.ts` discovers the repo's git worktrees and its
+[Conductor](https://conductor.build) workspaces
+(`~/conductor/workspaces/<repo>/<name>`), and the exporter reads them all into
+one flat export — workspace sessions land in the main project's index. The
+Claude adapter additionally matches transcript folders by *name*
+(`conductorProjectDirNames`), because an archived Conductor workspace keeps its
+transcripts after its directory and worktree registration are gone. The SQLite
+adapters take the extra roots as `extraRoots` so one database open covers all
+of them.
+
 Adding a source means writing an adapter, not touching the exporter. Anything
 source-specific — tool names, input key casing, how a human turn is told apart
 from an injected one, whether a call and its result are one record or two —
@@ -78,15 +89,15 @@ sidecar's `models` field and merged in at render time via `withCatalog()`.
 ## Versioning
 
 The project follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
-The current version is **1.4.0**.
+The current version is **1.5.0**.
 
 **Single source of truth.** The version lives in exactly one place — the
 `version` field of `package.json`. Everything else derives from it:
 
 - `src/version.ts` reads `package.json` and exports `VERSION` plus a
   `handleVersionFlag()` helper. Import from here; never hard-code a version.
-- The CLIs support `--version` / `-v`: `cca --version` → `1.4.0`; the
-  subcommands report their own name, e.g. `cca export --version` → `cca-export 1.4.0`.
+- The CLIs support `--version` / `-v`: `cca --version` → `1.5.0`; the
+  subcommands report their own name, e.g. `cca export --version` → `cca-export 1.5.0`.
 - Every export stamps the tool version into the sidecar marker of the generated
   markdown: `<!-- cca:data v=<data-format> tool=<version> -->`.
 - `install.sh` prints the installed version after installing.
