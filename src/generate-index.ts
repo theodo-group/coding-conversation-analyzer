@@ -5,7 +5,9 @@
 // with per-row checkboxes that live-sum the group so several sessions on one
 // feature can be analyzed together. Dark theme, matching the other reports.
 
-import { escape, fmtDuration, fmtMoney, fmtTokens } from "./html/format.ts";
+import { escape, fmtDuration, fmtMoney, fmtTokens, sourceLabel } from "./html/format.ts";
+import type { SourceId } from "./sources/types.ts";
+import { VERSION } from "./version.ts";
 
 // One conversation's row. `metrics` is null when no `.json` sidecar sat next
 // to the source markdown (no dashboard, no numbers) — the row still links to
@@ -33,6 +35,9 @@ export interface IndexEntry {
   // unknown in as zero would understate the group and rank the row as the
   // cheapest session in a mixed-source index.
   hasCost?: boolean;
+  // Which harness produced the conversation (from the sidecar). Absent when no
+  // sidecar was found — the row then carries no source badge rather than a guess.
+  source?: SourceId;
   kind?: "subagent" | "workflow";
   children?: IndexEntry[];
 }
@@ -66,10 +71,14 @@ function row(e: IndexEntry, isChild = false): string {
     : `<span class="dash">—</span>`;
 
   const badge = e.kind ? `<span class="kind kind-${e.kind}">${e.kind}</span>` : "";
+  // Harness badge on main rows only — a child transcript always shares its
+  // parent's source, so repeating it would just be noise.
+  const srcBadge =
+    !isChild && e.source ? `<span class="kind kind-src">${escape(sourceLabel(e.source))}</span>` : "";
 
   return `<tr${isChild ? ' class="child"' : ""}>
   <td class="c-pick">${cb}</td>
-  <td class="c-title">${badge}<span class="title" title="${escape(e.title)}">${escape(e.title)}</span><div class="links">${links}</div></td>
+  <td class="c-title">${srcBadge}${badge}<span class="title" title="${escape(e.title)}">${escape(e.title)}</span><div class="links">${links}</div></td>
   <td class="c-num">${cost}</td>
   <td class="c-num">${num(fmtTokens(e.peakContext))}</td>
   <td class="c-num">${num(fmtDuration(e.durationSeconds))}</td>
@@ -165,6 +174,9 @@ thead .c-num { text-align: right; }
   vertical-align: 1px; border: 1px solid var(--border); color: var(--text-muted);
 }
 .kind-workflow { color: var(--ctx); border-color: rgba(88, 166, 255, 0.4); }
+/* Harness badge — which coding agent produced the conversation. */
+.kind-src { color: var(--text); border-color: var(--border); background: var(--surface-2); }
+.ver { font-family: var(--mono); }
 .links { margin-top: 3px; display: flex; gap: 12px; }
 .lnk { font-size: 11px; color: var(--accent); text-decoration: none; }
 .lnk:hover { text-decoration: underline; }
@@ -179,7 +191,7 @@ input[type=checkbox]:disabled { cursor: default; opacity: 0.4; }
   <div>
     <div class="eyebrow">Conversation reports</div>
     <h1>${escape(heading)}</h1>
-    <div class="sub">${entries.length} conversation(s)${withMetrics < entries.length ? ` · ${withMetrics} with metrics` : ""}</div>
+    <div class="sub">${entries.length} conversation(s)${withMetrics < entries.length ? ` · ${withMetrics} with metrics` : ""} · <span class="ver" title="Version of the cca tool that generated this report">cca v${escape(VERSION)}</span></div>
   </div>
 
   <div class="totals" id="totals">

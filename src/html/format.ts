@@ -41,3 +41,19 @@ export function fmtOffset(sec: number): string {
   const m = Math.floor(s / 60);
   return `${m}m ${s % 60}s`;
 }
+
+// Display name for the coding agent (harness) that produced a conversation.
+// One map shared by every report surface — index, discussion, dashboard,
+// simulation — so a new source gets its label added in exactly one place.
+const SOURCE_LABEL: Record<string, string> = {
+  "claude-code": "Claude Code",
+  opencode: "OpenCode",
+  cursor: "Cursor",
+};
+
+// Absent means Claude Code (the sidecar omits `source` for it); an id the map
+// doesn't know is shown verbatim rather than mislabelled.
+export function sourceLabel(source?: string): string {
+  const id = source ?? "claude-code";
+  return SOURCE_LABEL[id] ?? id;
+}

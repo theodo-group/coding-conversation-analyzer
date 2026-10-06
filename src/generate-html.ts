@@ -7,7 +7,7 @@ import * as path from "path";
 import { generateDashboardHtml, summarizeSidecar } from "./generate-dashboard.ts";
 import { generateSimulationHtml } from "./generate-simulation.ts";
 import { generateIndexHtml, type IndexEntry } from "./generate-index.ts";
-import { escape } from "./html/format.ts";
+import { escape, sourceLabel } from "./html/format.ts";
 import { noUsageBody, noUsageHeadline } from "./no-usage.ts";
 import type { Sidecar } from "./sidecar.ts";
 import { handleVersionFlag } from "./version.ts";
@@ -411,7 +411,12 @@ function buildAgentHrefMap(mdPath: string): Map<string, string> {
 }
 
 function generateHtml(mdPath: string): string {
-  const text = stripDataBlock(fs.readFileSync(mdPath, "utf-8"));
+  const rawText = fs.readFileSync(mdPath, "utf-8");
+  // The embedded sidecar names the harness that produced the conversation
+  // (`source`, absent = Claude Code) — pulled out before the block is stripped
+  // from the parsed body.
+  const embedded = extractEmbeddedSidecar(rawText);
+  const text = stripDataBlock(rawText);
   const allLines = text.split("\n");
   const agentHrefs = buildAgentHrefMap(mdPath);
 
@@ -554,29 +559,39 @@ function generateHtml(mdPath: string): string {
   // source that records no token usage. Reading it here rather than the sidecar
   // keeps the banner working for a .md carried on its own.
   let noUsageHtml = "";
+  const fmMap: Record<string, string> = {};
   if (frontmatter.raw) {
-    const map: Record<string, string> = {};
     for (const line of frontmatter.raw.split("\n")) {
       const i = line.indexOf(":");
       if (i === -1) continue;
-      map[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+      fmMap[line.slice(0, i).trim()] = line.slice(i + 1).trim();
     }
-    fmHtml = FM_ORDER.filter((k) => map[k])
+    fmHtml = FM_ORDER.filter((k) => fmMap[k])
       .map((k) => {
-        const v = k === "uuid" ? map[k]!.slice(0, 8) : map[k]!;
+        const v = k === "uuid" ? fmMap[k]!.slice(0, 8) : fmMap[k]!;
         return `<span class="meta-field"><span class="mk">${escape(FM_LABELS[k]!)}</span><span class="mv">${escape(v)}</span></span>`;
       })
       .join("");
-    if (map["tokens"] === "unavailable") {
+    if (fmMap["tokens"] === "unavailable") {
       // The per-card context badges come from the exporter's `<!--cca-ctx:N-->`
       // markers, which it only writes for a non-zero window — so a source with
       // no usage emits none, and no badge can render as `0`. Nothing to
       // suppress, then; what is needed is saying why the column is bare.
-      const src = map["source"] as "cursor" | undefined;
+      const src = fmMap["source"] as "cursor" | undefined;
       noUsageHtml =
         `<div class="banner"><strong>${escape(noUsageHeadline(src))}</strong> ` +
         `${escape(noUsageBody(src))} The context badge each message would carry is absent for the same reason.</div>`;
     }
+  }
+  // Which harness produced the conversation, shown first in the meta row. The
+  // embedded sidecar is authoritative (its absent `source` means Claude Code);
+  // a bare .md without one may still carry a frontmatter `source:` key. Only a
+  // sidecar-less, source-less .md gets no field — better absent than guessed.
+  const srcId = embedded ? (embedded.source ?? "claude-code") : fmMap["source"];
+  if (srcId) {
+    fmHtml =
+      `<span class="meta-field"><span class="mk">Agent</span><span class="mv">${escape(sourceLabel(srcId))}</span></span>` +
+      fmHtml;
   }
 
   return `<!DOCTYPE html>
@@ -1090,6 +1105,7 @@ function main() {
       linesRemoved: r.metrics?.linesRemoved ?? 0,
       hasMetrics: r.metrics !== null,
       hasCost: r.metrics?.hasCost ?? true,
+      ...(r.metrics ? { source: r.metrics.source } : {}),
     });
 
     // Nest subagent/workflow transcripts under the main discussion that spawned

@@ -6,7 +6,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { attr, escape, fmtDuration, fmtMoney, fmtOffset, fmtTokens } from "./html/format.ts";
+import { attr, escape, fmtDuration, fmtMoney, fmtOffset, fmtTokens, sourceLabel } from "./html/format.ts";
 import { noUsageBody, noUsageHeadline, noUsageShort } from "./no-usage.ts";
 import {
   contextLimitOf,
@@ -182,7 +182,9 @@ export interface SidecarSummary {
   // False when the source recorded no token usage, so the index shows `n/a`
   // rather than a $0.00 that would sort as the cheapest session in the list.
   hasCost: boolean;
-  source?: Sidecar["source"];
+  // Always resolved (absent in the sidecar means Claude Code), so the index
+  // can label every row with the harness that produced it.
+  source: NonNullable<Sidecar["source"]>;
 }
 
 export function summarizeSidecar(s: Sidecar): SidecarSummary {
@@ -195,8 +197,8 @@ export function summarizeSidecar(s: Sidecar): SidecarSummary {
     linesAdded: s.stats?.linesAdded ?? 0,
     linesRemoved: s.stats?.linesRemoved ?? 0,
     hasCost: s.usageAvailable !== false,
+    source: s.source ?? "claude-code",
   };
-  if (s.source) summary.source = s.source;
   return summary;
 }
 
@@ -307,7 +309,7 @@ function heroSection(s: Sidecar): string {
     .join("");
   const title = s.title.trim() || "Untitled conversation";
   return `<div class="hero">
-  <div class="eyebrow">Conversation report</div>
+  <div class="eyebrow">Conversation report · ${escape(sourceLabel(s.source))}</div>
   <h1>${escape(title.length > 160 ? title.slice(0, 160) + "…" : title)}</h1>
   <div class="subtitle">${chips}</div>
 </div>`;
@@ -539,7 +541,7 @@ function setupColumn(
 function setupSection(s: Sidecar): string {
   const source = s.source ?? "claude-code";
   const chrome = SETUP_CHROME[source] ?? SETUP_CHROME["claude-code"];
-  const agent = SOURCE_LABEL[source] ?? "Agent";
+  const agent = sourceLabel(source);
   const count = s.setup.project.length + s.setup.user.length;
   return `<section class="panel">
   <div class="section-head"><span class="eyebrow">Environment · ${escape(agent)} configuration</span><h2>${escape(agent)} setup <span class="badge">${count} items</span></h2></div>
@@ -586,15 +588,9 @@ function diffSection(s: Sidecar): string {
 
 // --- Page assembly ---
 
-const SOURCE_LABEL: Record<string, string> = {
-  "claude-code": "Claude Code",
-  opencode: "OpenCode",
-  cursor: "Cursor",
-};
-
 function footerNote(s: Sidecar): string {
-  const agent = SOURCE_LABEL[s.source ?? "claude-code"] ?? "";
-  const id = `Session ID: ${escape(s.uuid)}${agent ? ` · ${agent}` : ""}${s.version ? ` ${escape(s.version)}` : ""}.`;
+  const agent = sourceLabel(s.source);
+  const id = `Session ID: ${escape(s.uuid)} · ${escape(agent)}${s.version ? ` ${escape(s.version)}` : ""}.`;
   if (s.usageAvailable === false) {
     // No prices to explain, and explaining the cost model anyway would imply
     // one had been applied.

@@ -15,7 +15,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { attr, escape, fmtOffset, fmtTokens } from "./html/format.ts";
+import { attr, escape, fmtOffset, fmtTokens, sourceLabel } from "./html/format.ts";
 import {
   DEFAULT_MODEL_ID,
   costOf,
@@ -567,7 +567,7 @@ body {
 <body>
 <main class="layout">
   <header class="head">
-    <div class="eyebrow">Conversation simulation</div>
+    <div class="eyebrow">Conversation simulation · ${escape(sourceLabel(s.source))}</div>
     <h1>${escape(title.length > 160 ? title.slice(0, 160) + "…" : title)}</h1>
     <div class="chips">
       <span>${escape(s.branch || "")}</span>
