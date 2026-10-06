@@ -1,0 +1,21 @@
+CLAUDE.md
+  s_95f762c7e343d0::t_55155f5180ae22 94,101-102
+package.json
+  s_95f762c7e343d0::t_5381c9aa25c41d 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c887766cfa1d20854aec6efae7fd79b4a70934f5",
+  "prompts": {},
+  "sessions": {
+    "s_95f762c7e343d0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a7bd6559-1ac9-4498-aa79-0590cec6f64e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
