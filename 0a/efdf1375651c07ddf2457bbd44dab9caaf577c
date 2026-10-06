@@ -1,0 +1,19 @@
+docs/cc-tap-merge-plan.md
+  s_68b69e14f24059::t_aa6cf3b4336290 1-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0aefdf1375651c07ddf2457bbd44dab9caaf577c",
+  "prompts": {},
+  "sessions": {
+    "s_68b69e14f24059": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2d73a011-ccae-4d10-94ec-d6b818aab040",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
