@@ -28,7 +28,9 @@ dashboard sidecar from that intermediate and knows nothing about any of their
 on-disk formats.
 
 - `sources/claude.ts` — Claude Code's jsonl transcripts under `~/.claude/projects/`
-- `sources/opencode.ts` — OpenCode's SQLite database, read-only via `node:sqlite`
+- `sources/opencode.ts` — OpenCode's SQLite database, read-only via `node:sqlite`;
+  reads the 1.x (`session`/`message`/`part`) and 2.x (`session_v2`/`session_message`)
+  layouts, detected by table, merged by session id
 - `sources/cursor.ts` — Cursor's `state.vscdb`, same
 - `sources/sqlite.ts` — the shared read-only open (WAL replay, muted experimental
   warning) both SQLite adapters use
@@ -89,15 +91,15 @@ sidecar's `models` field and merged in at render time via `withCatalog()`.
 ## Versioning
 
 The project follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
-The current version is **1.5.0**.
+The current version is **1.5.1**.
 
 **Single source of truth.** The version lives in exactly one place — the
 `version` field of `package.json`. Everything else derives from it:
 
 - `src/version.ts` reads `package.json` and exports `VERSION` plus a
   `handleVersionFlag()` helper. Import from here; never hard-code a version.
-- The CLIs support `--version` / `-v`: `cca --version` → `1.5.0`; the
-  subcommands report their own name, e.g. `cca export --version` → `cca-export 1.5.0`.
+- The CLIs support `--version` / `-v`: `cca --version` → `1.5.1`; the
+  subcommands report their own name, e.g. `cca export --version` → `cca-export 1.5.1`.
 - Every export stamps the tool version into the sidecar marker of the generated
   markdown: `<!-- cca:data v=<data-format> tool=<version> -->`.
 - `install.sh` prints the installed version after installing.

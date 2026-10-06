@@ -2,7 +2,8 @@
 
 Status: **implemented** in v1.2.0 — see `src/sources/opencode.ts`.
 Author: exploration pass, 2026-09-07
-Probed against: **opencode 1.18.29** (Homebrew), Node v22.14.0, macOS
+Probed against: **opencode 1.18.29** (Homebrew), Node v22.14.0, macOS.
+The 2.x storage layout is covered in §10 (probed against **opencode 2.0.24**).
 
 Kept as the design record for the OpenCode data model. Where implementation
 diverged from the plan, the section says so inline; §8 records which open
@@ -177,6 +178,12 @@ SELECT project_id FROM project_directory WHERE directory = :gitRoot;
 
 then `SELECT * FROM session WHERE project_id = :pid AND parent_id IS NULL`
 for top-level sessions, and `parent_id = :sid` (recursively) for subagents.
+
+*Implemented as:* `project_id IN (…) OR directory IN (<roots>)`. OpenCode's own
+project attribution has proved unreliable across its migrations (sessions left
+under the catch-all `global` project), so a session that ran in one of our
+roots is included even when its `project_id` disagrees. `project_directory`
+is optional — it does not exist before 1.18.
 
 ---
 
@@ -788,3 +795,77 @@ Both sessions and their scratch files were deleted afterwards
 (`opencode session delete`); one stray `b.txt` that OpenCode wrote to
 `~/Documents/Projets/` (it resolved the project root above the intended scratch
 dir) was removed. The four MarekAI sessions are untouched.
+
+---
+
+## 10. OpenCode 2.x storage layout
+
+Probed against **opencode 2.0.24** (npm `@opencode/cli`), on a database
+migrated up from 1.2.6. Schema source of truth:
+`packages/schema/src/session-message.ts` in `anomalyco/opencode` at `v2.0.24`.
+
+### 10.1 What changed
+
+| v1 (≤ 1.18) | v2 (2.x) |
+| --- | --- |
+| `session` | `session_v2` — same core columns; `title` nullable; `model` is JSON `{id, providerID, variant}` |
+| `message` + `part`, one row per part | `session_message` — one typed JSON row per message, ordered by `seq` |
+| assistant message spans several API steps (`step-start` / `step-finish` parts) | each `assistant` row *is* one step, carrying its own `tokens` |
+| tools `bash`, `task`; inputs `filePath` | tools `shell`, `subagent`; inputs `path` |
+| `state.output` string, `state.error` string | `state.content[]` (`text` / `file`), `state.error {type, message}` |
+| `metadata.filediff`, `metadata.sessionId` | `metadata.files[]` (one per touched file), `metadata.sessionID` |
+
+`session_message.type` ∈ `user`, `assistant`, `synthetic`, `system`, `skill`,
+`shell`, `compaction`, `agent-switched`, `model-switched`, `location-switched`,
+`idle`. The reader maps them as: `user` → `user_text`; `synthetic` / `system` /
+`skill` → `skill_prompt` (injected, not a human turn); `shell` (a `!command`)
+→ `local_command`; `compaction` → a compaction marker plus the summary as an
+assistant turn with its own usage; `agent-switched` → a mode-band transition;
+`model-switched` updates the model the following user rows inherit; `idle` and
+`location-switched` carry no content.
+
+### 10.2 Detection, not version numbers
+
+The reader checks for each layout's tables and columns and reads every layout
+present. A version check would be fragile: the schema is internal, and 1.18
+already ships an (empty) `session_message` table — so the mere presence of a
+v2 table proves nothing; v2 is detected by `session_v2` + `session_message`
+together, v1 by `session` + `message` + `part`.
+
+### 10.3 Both layouts in one database
+
+Upgrading to 2.x copies every v1 session into `session_v2` / `session_message`
+with the same id and timestamps, and leaves the v1 rows in place. Sessions
+created afterwards exist only in v2. The reader merges by id and keeps the
+**v1 copy unless the v2 one is newer** (the session was continued after the
+upgrade). The tie-break is not just for stable re-exports — the migrated copy
+is lossy:
+
+- tool outputs v1 had marked compacted (but still stored) become the literal
+  `[Old tool result content cleared]`;
+- tool calls interrupted under v1 gain a `tool.interrupted` error result;
+- a `system` row announcing the tool renames is appended to every session;
+- the separate synthetic text parts of a v1 user message are joined into one
+  `synthetic` row.
+
+### 10.4 `session_v2.time_updated` is stale
+
+2.x does not bump `session_v2.time_updated` as messages arrive — on a real
+session it stayed at the subagent's spawn while the conversation ran on for
+two more minutes. So a session's *activity* is the newest `time_updated` across
+its own row and its content rows (`message` + `part`, or `session_message`).
+It drives re-export detection, the v1/v2 tie-break (§10.3), and — for v2 rows
+only — the session's end timestamp. v1 rows keep their own `time_updated` as
+the end timestamp, as they always have.
+
+### 10.5 Tools seen in 2.x sessions with no canonical mapping
+
+`execute` (code mode: a JS snippet calling MCP tools, `input.code`) and
+`question` render as unmapped tools — their input as a JSON dump.
+
+### 10.6 Verification
+
+Verified on a real database: the legacy sessions of a migrated database export
+byte-identical to the same sessions read from the pre-upgrade backup, and
+reading the migrated copies through the v2 reader alone differs only by the
+four artefacts above.

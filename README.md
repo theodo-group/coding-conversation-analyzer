@@ -6,6 +6,7 @@ same format so a single index can list them side by side:
 
 - **[Claude Code](https://claude.com/claude-code)** — the jsonl transcripts under `~/.claude/projects/`
 - **[OpenCode](https://opencode.ai)** — the SQLite database at `$XDG_DATA_HOME/opencode/opencode.db`
+  (both the 1.x and 2.x storage layouts, including a database holding both after an upgrade)
 - **[Cursor](https://cursor.com)** — the SQLite database at
   `Cursor/User/globalStorage/state.vscdb` (see [the Cursor caveat](#cursor-records-no-token-usage))
 
