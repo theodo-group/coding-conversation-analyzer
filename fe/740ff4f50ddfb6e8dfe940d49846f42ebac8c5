@@ -1,0 +1,54 @@
+README.md
+  s_6aa492e0b5fea5::t_71f27caef681e0 4,12-14,109,117,122-130,150-165,175-177,185,303-304,313-314
+docs/copilot-export-spec.md
+  s_6aa492e0b5fea5::t_b867df2e2ea18f 1-196
+CLAUDE.md
+  s_6aa492e0b5fea5::t_06e920be9788b8 82-85
+  s_6aa492e0b5fea5::t_71f27caef681e0 35-39,66,68
+  s_6aa492e0b5fea5::t_14ba169c809617 69-70
+src/sources/opencode.ts
+  s_6aa492e0b5fea5::t_71916b3249bc7f 31-32
+bin/cca
+  s_6aa492e0b5fea5::t_71f27caef681e0 58,64
+src/sources/types.ts
+  s_6aa492e0b5fea5::t_07fdcc224c6d3e 13
+src/sources/copilot.ts
+  s_6aa492e0b5fea5::t_45b52d29d6d034 390
+  s_6aa492e0b5fea5::t_1015010ed8e12f 205,208
+  s_6aa492e0b5fea5::t_dd59fba3641990 303-305
+  s_6aa492e0b5fea5::t_d2c91313b1ccad 336,338
+  s_6aa492e0b5fea5::t_b9e1a52d36b655 382
+  s_6aa492e0b5fea5::t_339cfc77c470ff 532-536
+  s_6aa492e0b5fea5::t_2c3fab40eacc69 1-204,206-207,209-302,306-335,337,339-381,383-389,391-531,537-652
+src/export-history.ts
+  s_6aa492e0b5fea5::t_d1e586958daa54 7-8,35,67-68,77,104-108,119,121,987-997
+src/no-usage.ts
+  s_6aa492e0b5fea5::t_a56fd4cc9f16ef 42-46
+  s_6aa492e0b5fea5::t_10b79e61418b33 21,24-35,52,60-62
+src/generate-dashboard.ts
+  s_6aa492e0b5fea5::t_fcd1f9aa046f21 80-82,88,460,519-529,607
+src/generate-html.ts
+  s_6aa492e0b5fea5::t_fcd1f9aa046f21 576
+  s_6aa492e0b5fea5::t_2d7ac79cc0862b 1001
+  s_6aa492e0b5fea5::t_c4cd8a2decade6 13
+src/sources/models-dev.ts
+  s_6aa492e0b5fea5::t_5002669d24693b 1-50
+package.json
+  s_6aa492e0b5fea5::t_71f27caef681e0 4,21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fe740ff4f50ddfb6e8dfe940d49846f42ebac8c5",
+  "prompts": {},
+  "sessions": {
+    "s_6aa492e0b5fea5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a258c239-a705-4a78-b43c-109adb6de395",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
