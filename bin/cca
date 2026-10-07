@@ -55,12 +55,13 @@ Usage:
 
 Export options:
   --full                          Do not truncate long messages
-  --source claude|opencode|cursor|auto
+  --source claude|opencode|cursor|copilot|auto
                                   Which agent's history to read. Default auto:
                                   every source with sessions for this project
   --claude-dir <path>             Override ~/.claude
   --opencode-dir <path>           Override \$XDG_DATA_HOME/opencode
   --cursor-dir <path>             Override the Cursor application-support dir
+  --copilot-dir <path>            Override ~/.copilot (GitHub Copilot CLI)
 EOF
 }
 

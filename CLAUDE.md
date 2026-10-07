@@ -32,6 +32,11 @@ on-disk formats.
   reads the 1.x (`session`/`message`/`part`) and 2.x (`session_v2`/`session_message`)
   layouts, detected by table, merged by session id
 - `sources/cursor.ts` — Cursor's `state.vscdb`, same
+- `sources/copilot.ts` — GitHub Copilot CLI's `~/.copilot/session-state/<id>/events.jsonl`
+  event logs, plus per-call token usage from `~/.copilot/session-store.db` (1.0.x+),
+  joined onto messages by agent and timestamp; reads both the 0.0.x and 1.0.x event shapes
+- `sources/models-dev.ts` — the models.dev catalog reader (OpenCode's cache) that
+  OpenCode and Copilot use to price models the checked-in catalog doesn't know
 - `sources/sqlite.ts` — the shared read-only open (WAL replay, muted experimental
   warning) both SQLite adapters use
 
@@ -58,10 +63,11 @@ output byte-identical. Verify by exporting a frozen `~/.claude` copy before and
 after (`cca export <dir> --claude-dir <frozen> --source claude`) and diffing.
 Only the `tool=` stamp in the sidecar marker may differ, and only across a
 version bump. Each SQLite source has the same escape hatch for a frozen
-fixture: `--opencode-dir`, `--cursor-dir`.
+fixture: `--opencode-dir`, `--cursor-dir`; Copilot has `--copilot-dir`.
 
-`docs/opencode-export-spec.md` and `docs/cursor-export-spec.md` record each
-source's data model and the design decisions behind its adapter.
+`docs/opencode-export-spec.md`, `docs/cursor-export-spec.md` and
+`docs/copilot-export-spec.md` record each source's data model and the design
+decisions behind its adapter.
 
 **A source that records no token usage.** Cursor writes zeros for every
 `tokenCount`; it meters usage server-side. Such a source sets
@@ -73,7 +79,10 @@ frontmatter (`tokens: unavailable`), the markdown body, the dashboard (banner +
 `n/a` tile + context-breakdown panel in place of the cost chart), the discussion
 viewer, and the index (`n/a`, excluded from the selected total). The simulation
 page is not generated at all, since it is built entirely on usage. If you add a
-source with the same gap, set the flag and the five surfaces follow.
+source with the same gap, set the flag and the five surfaces follow. The flag is
+per session, not per source: Copilot sets it only on sessions with no rows in
+its usage store (those from 0.0.x), and `no-usage.ts` words the reason per
+source.
 
 ## Pricing
 

@@ -1,7 +1,7 @@
 # coding-conversation-analyzer
 
 Export coding-agent conversations into readable markdown, then turn them into an
-interactive HTML viewer for analysis. Three agents are supported, and all land in the
+interactive HTML viewer for analysis. Four agents are supported, and all land in the
 same format so a single index can list them side by side:
 
 - **[Claude Code](https://claude.com/claude-code)** — the jsonl transcripts under `~/.claude/projects/`
@@ -9,6 +9,9 @@ same format so a single index can list them side by side:
   (both the 1.x and 2.x storage layouts, including a database holding both after an upgrade)
 - **[Cursor](https://cursor.com)** — the SQLite database at
   `Cursor/User/globalStorage/state.vscdb` (see [the Cursor caveat](#cursor-records-no-token-usage))
+- **[GitHub Copilot CLI](https://github.com/features/copilot/cli)** — the event logs under
+  `~/.copilot/session-state/`, with per-call token usage from `~/.copilot/session-store.db`
+  (see [the Copilot note](#github-copilot-cli-usage-comes-from-a-separate-store))
 
 Two steps, both run through the **`cca`** CLI (see [Install](#install)):
 
@@ -103,6 +106,7 @@ rows in the same index, directly comparable. Restrict it with `--source`:
 cca export <output-dir> --source claude     # Claude Code only
 cca export <output-dir> --source opencode   # OpenCode only
 cca export <output-dir> --source cursor     # Cursor only
+cca export <output-dir> --source copilot    # GitHub Copilot CLI only
 ```
 
 The OpenCode and Cursor databases are read **read-only** through Node's built-in
@@ -110,20 +114,20 @@ The OpenCode and Cursor databases are read **read-only** through Node's built-in
 replayed, so a session written seconds ago exports in full. Filenames are unambiguous per
 source: Claude sessions use their 8-character uuid prefix, OpenCode sessions an
 `oc`-tagged session id (`…-ocf850f7be.md`), Cursor sessions a `cu`-tagged one
-(`…-cucdd5e6fe.md`).
+(`…-cucdd5e6fe.md`), Copilot sessions a `cp`-tagged one (`…-cpff3b9423.md`).
 
 A few things differ because the sources differ, and the reports say so rather than
 pretending otherwise:
 
-| | Claude Code | OpenCode | Cursor |
-| --- | --- | --- | --- |
-| Token usage & cost | recorded per message | recorded per API step | **not recorded at all** — see below |
-| Branch | recorded per message | **not recorded** — read from the working tree now, and stamped `branchSource: "live-git"` | recorded at session time (`branchSource: "snapshot"`) |
-| Timeline band | permission mode (Normal / Plan / Auto-accept / Bypass) | active **agent / mode** (build, plan, explore, …) — a different thing, labelled differently | session mode (agent / chat / edit), one flat segment — Cursor records no transitions |
-| Diffs | approximated from the edit's before/after strings | real unified diffs with exact add/delete counts | real line-level diffs, exact — Cursor precomputes them |
-| Subagent links | scraped from the spawn's result text | stated outright, and nested arbitrarily deep | stated outright, with retried spawns excluded |
-| Task notifications / workflows | present | no analog — simply never emitted | no analog — simply never emitted |
-| Compaction | — | marked on the transcript and the timeline (🗜️) | not observable in what Cursor stores |
+| | Claude Code | OpenCode | Cursor | GitHub Copilot CLI |
+| --- | --- | --- | --- | --- |
+| Token usage & cost | recorded per message | recorded per API step | **not recorded at all** — see below | recorded per API call from 1.0 on, in a separate store — see below |
+| Branch | recorded per message | **not recorded** — read from the working tree now, and stamped `branchSource: "live-git"` | recorded at session time (`branchSource: "snapshot"`) | recorded at session time (`branchSource: "snapshot"`) |
+| Timeline band | permission mode (Normal / Plan / Auto-accept / Bypass) | active **agent / mode** (build, plan, explore, …) — a different thing, labelled differently | session mode (agent / chat / edit), one flat segment — Cursor records no transitions | agent mode (interactive / plan / autopilot), as stated on prompts and permission requests |
+| Diffs | approximated from the edit's before/after strings | real unified diffs with exact add/delete counts | real line-level diffs, exact — Cursor precomputes them | real unified diffs with exact add/delete counts |
+| Subagent links | scraped from the spawn's result text | stated outright, and nested arbitrarily deep | stated outright, with retried spawns excluded | stated outright (`subagent.started`); split out of the shared event log |
+| Task notifications / workflows | present | no analog — simply never emitted | no analog — simply never emitted | not handled yet |
+| Compaction | — | marked on the transcript and the timeline (🗜️) | not observable in what Cursor stores | not handled yet |
 
 #### Cursor records no token usage
 
@@ -143,6 +147,22 @@ Concretely:
 Everything else — messages, thinking, tool calls and results, timings, diffs, subagents —
 is complete, and in places more exact than the other sources.
 
+#### GitHub Copilot CLI: usage comes from a separate store
+
+Copilot CLI's event log (`events.jsonl`) carries no token counts. From version 1.0 it
+records one row per API call in `~/.copilot/session-store.db`, which the exporter reads
+read-only and pairs back onto each assistant message by agent and timestamp — so a
+Copilot export gets the same cost and context charts as the others. Models are priced
+from the built-in catalog where it knows them (`claude-sonnet-4.5` is matched to
+`claude-sonnet-4-5`) and otherwise from the `github-copilot` provider in OpenCode's
+models.dev cache (`~/.cache/opencode/models.json`), when present. Cost is at those list
+prices; it is not Copilot's AI-credit billing.
+
+Sessions recorded before the store existed (0.0.x) have no usage rows. They are handled
+like Cursor sessions — cost omitted, simulation page skipped — and, when the session shut
+down cleanly, show Copilot's own context breakdown (system prompt, tool definitions,
+conversation) in place of the chart.
+
 Long tool results are truncated by default. Pass `--full` to export them in full:
 
 ```bash
@@ -152,8 +172,9 @@ cca export <output-dir> --full
 By default it reads Claude Code's history from `~/.claude`, OpenCode's from
 `$XDG_DATA_HOME/opencode` (i.e. `~/.local/share/opencode`), and Cursor's from the platform
 application-support directory (`~/Library/Application Support/Cursor` on macOS,
-`~/.config/Cursor` on Linux, `%APPDATA%/Cursor` on Windows). Pass `--claude-dir <path>`,
-`--opencode-dir <path>` or `--cursor-dir <path>` (`=<path>` also works, `~` is expanded) to
+`~/.config/Cursor` on Linux, `%APPDATA%/Cursor` on Windows), and GitHub Copilot CLI's from
+`~/.copilot`. Pass `--claude-dir <path>`, `--opencode-dir <path>`, `--cursor-dir <path>` or
+`--copilot-dir <path>` (`=<path>` also works, `~` is expanded) to
 read from a different location — useful for a non-standard `CLAUDE_CONFIG_DIR`, a backup,
 or another machine's history:
 
@@ -161,6 +182,7 @@ or another machine's history:
 cca export <output-dir> --claude-dir /path/to/.claude
 cca export <output-dir> --opencode-dir /path/to/opencode
 cca export <output-dir> --cursor-dir "/path/to/Cursor"
+cca export <output-dir> --copilot-dir /path/to/.copilot
 ```
 
 Output structure:
@@ -278,7 +300,8 @@ Same dark theme, a single-page metrics report generated from the JSON sidecar:
   free models, which show an honest `$0`. The context-window axis is the largest limit
   across the models the session actually used
 - Message timeline with a thinking-blocks toggle and a band showing the permission mode
-  (Claude Code), the active agent/mode (OpenCode) or the session mode (Cursor)
+  (Claude Code), the active agent/mode (OpenCode), the session mode (Cursor) or the agent
+  mode (GitHub Copilot CLI)
 - Spawned subagents, with per-model token totals
 - Generated diffs from `Write`/`Edit` tool calls
 - **Setup** panel — the configuration active for the run, grouped by the kinds the
@@ -287,7 +310,8 @@ Same dark theme, a single-page metrics report generated from the JSON sidecar:
   `~/.config/opencode/`, plus `opencode.json(c)` agents, `AGENTS.md`, and the
   `~/.claude/skills` it reaches through `external_directory` rules); agents, skills,
   commands and always-on `rules/*.mdc` for Cursor (`.cursor/`, `~/.cursor/`, including
-  Cursor's built-in skills). Read from the current config, so it reflects config *now*,
+  Cursor's built-in skills); agents and skills for GitHub Copilot CLI (`.github/`,
+  `~/.copilot/`). Read from the current config, so it reflects config *now*,
   not necessarily at run time
 
 Refresh the price catalog from models.dev with `npm run sync-models` — it prints entries

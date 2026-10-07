@@ -18,7 +18,20 @@ import type { SourceId } from "./sources/types.ts";
 
 const AGENT_LABEL: Partial<Record<SourceId, string>> = {
   cursor: "Cursor",
+  copilot: "GitHub Copilot CLI",
 };
+
+// Why the figures are missing, which differs by source. Cursor never records
+// them; Copilot CLI does, per API call, but only from 1.0.x on — a session from
+// an older version, or one missing from its store, has none to read.
+const REASON: Partial<Record<SourceId, string>> = {
+  copilot:
+    "has no per-call token usage for this session: it records usage in its " +
+    "session store only from version 1.0, and this session has no rows there.",
+};
+const DEFAULT_REASON =
+  "does not record per-message token usage on disk (every tokenCount is zero); " +
+  "usage is metered server-side.";
 
 export function agentLabel(source: SourceId | undefined): string {
   return (source && AGENT_LABEL[source]) || "This agent";
@@ -26,14 +39,17 @@ export function agentLabel(source: SourceId | undefined): string {
 
 /** Headline sentence, bold in every rendering. */
 export function noUsageHeadline(source: SourceId | undefined): string {
-  return `Token counts are not available for ${agentLabel(source)} sessions.`;
+  // Copilot records usage for some sessions and not others, so the claim is
+  // about this one rather than the source as a whole.
+  return source === "copilot"
+    ? `Token counts are not available for this ${agentLabel(source)} session.`
+    : `Token counts are not available for ${agentLabel(source)} sessions.`;
 }
 
 /** The explanation that follows the headline. Plain text, no markup. */
 export function noUsageBody(source: SourceId | undefined): string {
   return (
-    `${agentLabel(source)} does not record per-message token usage on disk ` +
-    `(every tokenCount is zero); usage is metered server-side. Cost, cache and ` +
+    `${agentLabel(source)} ${(source && REASON[source]) || DEFAULT_REASON} Cost, cache and ` +
     `token-per-turn figures are therefore omitted rather than estimated. ` +
     `Message, tool, timing and diff data are complete.`
   );
@@ -41,7 +57,9 @@ export function noUsageBody(source: SourceId | undefined): string {
 
 /** One-line form, for a stat tile's tooltip or an index footnote. */
 export function noUsageShort(source: SourceId | undefined): string {
-  return `${agentLabel(source)} does not record token usage on disk, so cost cannot be computed.`;
+  return source === "copilot"
+    ? `${agentLabel(source)} recorded no token usage for this session, so cost cannot be computed.`
+    : `${agentLabel(source)} does not record token usage on disk, so cost cannot be computed.`;
 }
 
 /**

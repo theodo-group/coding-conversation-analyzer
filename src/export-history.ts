@@ -4,7 +4,8 @@
 // Source-agnostic: a `SourceAdapter` (see `sources/`) turns whatever a coding
 // agent stores on disk into the neutral intermediate, and everything below —
 // markdown rendering, the dashboard sidecar, the output layout — is shared.
-// Claude Code reads jsonl transcripts; OpenCode and Cursor read SQLite stores.
+// Claude Code reads jsonl transcripts; OpenCode and Cursor read SQLite stores;
+// GitHub Copilot CLI reads a jsonl event log plus a SQLite usage store.
 // A source that records no token usage (Cursor) flags it, and the reports say
 // so rather than printing zeros — see `no-usage.ts`.
 //
@@ -31,6 +32,7 @@ import {
   conductorProjectDirNames,
   resolveClaudeDir,
 } from "./sources/claude.ts";
+import { CopilotAdapter } from "./sources/copilot.ts";
 import { CursorAdapter } from "./sources/cursor.ts";
 import { OpenCodeAdapter } from "./sources/opencode.ts";
 import {
@@ -62,8 +64,8 @@ const projectRoot = getProjectRoot();
 
 // --- CLI ---
 
-type SourceName = "claude" | "opencode" | "cursor";
-const SOURCE_NAMES: SourceName[] = ["claude", "opencode", "cursor"];
+type SourceName = "claude" | "opencode" | "cursor" | "copilot";
+const SOURCE_NAMES: SourceName[] = ["claude", "opencode", "cursor", "copilot"];
 
 const rawArgs = process.argv.slice(2);
 handleVersionFlag(rawArgs, "cca-export");
@@ -72,6 +74,7 @@ const positional: string[] = [];
 let claudeDirArg: string | undefined;
 let openCodeDirArg: string | undefined;
 let cursorDirArg: string | undefined;
+let copilotDirArg: string | undefined;
 let sourceArg = "auto";
 
 for (let i = 0; i < rawArgs.length; i++) {
@@ -98,6 +101,11 @@ for (let i = 0; i < rawArgs.length; i++) {
     cursorDirArg = cud;
     continue;
   }
+  const cpd = opt("copilot-dir");
+  if (cpd !== undefined) {
+    copilotDirArg = cpd;
+    continue;
+  }
   const sr = opt("source");
   if (sr !== undefined) {
     sourceArg = sr;
@@ -108,8 +116,9 @@ for (let i = 0; i < rawArgs.length; i++) {
 }
 
 const USAGE =
-  "Usage: cca-export <target-dir> [--full] [--source claude|opencode|cursor|auto]\n" +
+  "Usage: cca-export <target-dir> [--full] [--source claude|opencode|cursor|copilot|auto]\n" +
   "                  [--claude-dir <path>] [--opencode-dir <path>] [--cursor-dir <path>]\n" +
+  "                  [--copilot-dir <path>]\n" +
   "                  [--version]";
 
 if (sourceArg !== "auto" && !SOURCE_NAMES.includes(sourceArg as SourceName)) {
@@ -975,11 +984,17 @@ function buildAdapters(): BoundAdapter[] {
                 extraRoots,
                 ...(openCodeDirArg ? { dataDir: openCodeDirArg } : {}),
               })
-            : new CursorAdapter({
-                projectRoot,
-                extraRoots,
-                ...(cursorDirArg ? { cursorDir: cursorDirArg } : {}),
-              }),
+            : name === "cursor"
+              ? new CursorAdapter({
+                  projectRoot,
+                  extraRoots,
+                  ...(cursorDirArg ? { cursorDir: cursorDirArg } : {}),
+                })
+              : new CopilotAdapter({
+                  projectRoot,
+                  extraRoots,
+                  ...(copilotDirArg ? { copilotDir: copilotDirArg } : {}),
+                }),
         primary: true,
       });
     } catch (e) {

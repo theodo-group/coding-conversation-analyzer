@@ -10,7 +10,7 @@
 import type { ModelCatalog } from "../models.ts";
 
 // Which coding agent produced a conversation.
-export type SourceId = "claude-code" | "opencode" | "cursor";
+export type SourceId = "claude-code" | "opencode" | "cursor" | "copilot";
 
 export interface Usage {
   in: number;

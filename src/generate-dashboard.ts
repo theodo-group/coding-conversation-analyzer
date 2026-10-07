@@ -77,12 +77,15 @@ const AGENT_MODE_META: Record<string, { label: string; color: string }> = {
   agent: { label: "🤖 Agent", color: "#768390" },
   chat: { label: "💬 Chat", color: "#56d4dd" },
   edit: { label: "✏️ Edit", color: "#d29922" },
+  // Copilot CLI's `agentMode`.
+  interactive: { label: "💬 Interactive", color: "#768390" },
+  autopilot: { label: "⏭️ Autopilot", color: "#da3633" },
 };
 
 // Label + colour for one band segment. Custom OpenCode agents aren't in the
 // table, so they get their name and a hue hashed from it.
 function modeMeta(mode: string, source: Sidecar["source"]): { label: string; color: string } {
-  if (source === "opencode" || source === "cursor") {
+  if (source === "opencode" || source === "cursor" || source === "copilot") {
     return AGENT_MODE_META[mode] ?? { label: mode, color: hashedColor(mode) };
   }
   return MODE_META[mode] ?? { label: mode, color: "#768390" };
@@ -454,7 +457,7 @@ function messageSection(s: Sidecar, modelColors: Record<string, string>): string
   return `<div class="row">
   <div class="row-label">
     <strong>Main thread message history</strong>
-    <span>${s.source === "opencode" ? "Band: active agent / mode." : s.source === "cursor" ? "Band: session mode." : "Band: permission mode."}</span>
+    <span>${s.source === "opencode" ? "Band: active agent / mode." : s.source === "cursor" ? "Band: session mode." : s.source === "copilot" ? "Band: agent mode." : "Band: permission mode."}</span>
     <div class="legend">${modelLegend}<span class="chip chip-prompt"><i></i>prompt</span></div>
     <button class="toggle-btn" id="thinking-toggle" type="button" aria-pressed="true">Hide 🧠 thinking</button>
   </div>
@@ -511,6 +514,17 @@ const SETUP_CHROME: Record<
       ["skill", "Skills"],
       ["command", "Commands"],
       ["rule", "Rules"],
+    ],
+  },
+  copilot: {
+    projectScope: ".github/",
+    userScope: "~/.copilot/",
+    note:
+      "Read at generation time from GitHub Copilot CLI's <code>agents/</code> and " +
+      "<code>skills/</code> directories under <code>.github</code> and <code>~/.copilot</code>",
+    kinds: [
+      ["agent", "Agents"],
+      ["skill", "Skills"],
     ],
   },
 };
@@ -590,6 +604,7 @@ const SOURCE_LABEL: Record<string, string> = {
   "claude-code": "Claude Code",
   opencode: "OpenCode",
   cursor: "Cursor",
+  copilot: "GitHub Copilot CLI",
 };
 
 function footerNote(s: Sidecar): string {

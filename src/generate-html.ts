@@ -10,6 +10,7 @@ import { generateIndexHtml, type IndexEntry } from "./generate-index.ts";
 import { escape } from "./html/format.ts";
 import { noUsageBody, noUsageHeadline } from "./no-usage.ts";
 import type { Sidecar } from "./sidecar.ts";
+import type { SourceId } from "./sources/types.ts";
 import { handleVersionFlag } from "./version.ts";
 
 // --- Types ---
@@ -572,7 +573,7 @@ function generateHtml(mdPath: string): string {
       // markers, which it only writes for a non-zero window — so a source with
       // no usage emits none, and no badge can render as `0`. Nothing to
       // suppress, then; what is needed is saying why the column is bare.
-      const src = map["source"] as "cursor" | undefined;
+      const src = map["source"] as SourceId | undefined;
       noUsageHtml =
         `<div class="banner"><strong>${escape(noUsageHeadline(src))}</strong> ` +
         `${escape(noUsageBody(src))} The context badge each message would carry is absent for the same reason.</div>`;
@@ -997,7 +998,7 @@ function convertFile(inputPath: string, outputPath: string): FileResult {
     // the link greyed out, which reads as "not available here", where a page of
     // zeros would read as a result.
     if (sidecar.usageAvailable === false) {
-      console.log(`  Simulation skipped (${sidecar.source ?? "source"} records no token usage)`);
+      console.log(`  Simulation skipped (${sidecar.source ?? "source"} recorded no token usage for this session)`);
     } else {
       const simulationPath = outputPath.replace(/\.html$/i, "-simulation.html");
       try {
