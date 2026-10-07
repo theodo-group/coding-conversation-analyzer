@@ -1,6 +1,6 @@
 {
   "name": "coding-conversation-analyzer",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Export Claude Code, OpenCode, Cursor and GitHub Copilot CLI conversations to markdown and view them in an interactive HTML analyzer.",
   "type": "module",
   "bin": {
