@@ -1,0 +1,28 @@
+src/export-history.ts
+  s_5e84476c350c9e::t_d78af470e8e765 29,73,84,122,941-947,1004
+src/sources/copilot.ts
+  s_5e84476c350c9e::t_d78af470e8e765 255-257,303-304,316-322
+  s_5e84476c350c9e::t_3fb50c84e56df7 323-324
+docs/copilot-export-spec.md
+  s_5e84476c350c9e::t_60d77ff95cedca 94-99
+README.md
+  s_5e84476c350c9e::t_60d77ff95cedca 99-104
+src/project-roots.ts
+  s_5e84476c350c9e::t_d78af470e8e765 67-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e06eddca8431871c9b414cd9f908996943567892",
+  "prompts": {},
+  "sessions": {
+    "s_5e84476c350c9e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "57f0ce76-c9e8-4ffb-b003-05077b86e054",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marek Kalnik <marekk@bam.tech>"
+    }
+  }
+}
