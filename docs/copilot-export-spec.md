@@ -91,6 +91,12 @@ read-only through `sources/sqlite.ts`, like OpenCode's and Cursor's databases.
 workspaces). `git_root` comes first so a session started in a subdirectory still
 belongs to its repo. `realpath` matters on macOS, where `/tmp` is `/private/tmp`.
 
+With `--experimental-deleted-worktrees`, a session whose `git_root`/`cwd` no longer
+exists is also taken when its `repository` (`owner/repo`) equals, case-insensitively,
+the `owner/repo` of the project's `origin` remote. Only directories that are gone
+qualify: a live directory that isn't a known root is a separate clone, so it stays a
+separate project.
+
 Filename stem: `cp` + the first 8 hex characters of the session uuid
 (`…-cpff3b9423.md`), unambiguous next to Claude Code's stems.
 

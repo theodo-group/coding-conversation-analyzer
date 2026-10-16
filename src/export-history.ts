@@ -26,7 +26,7 @@ import type {
   TimelinePoint,
   ToolCounts,
 } from "./sidecar.ts";
-import { conductorRepoName, discoverProjectRoots } from "./project-roots.ts";
+import { conductorRepoName, discoverProjectRoots, originRepository } from "./project-roots.ts";
 import {
   ClaudeAdapter,
   conductorProjectDirNames,
@@ -70,6 +70,7 @@ const SOURCE_NAMES: SourceName[] = ["claude", "opencode", "cursor", "copilot"];
 const rawArgs = process.argv.slice(2);
 handleVersionFlag(rawArgs, "cca-export");
 const fullExport = rawArgs.includes("--full");
+const deletedWorktrees = rawArgs.includes("--experimental-deleted-worktrees");
 const positional: string[] = [];
 let claudeDirArg: string | undefined;
 let openCodeDirArg: string | undefined;
@@ -80,7 +81,7 @@ let sourceArg = "auto";
 for (let i = 0; i < rawArgs.length; i++) {
   const a = rawArgs[i];
   if (a === undefined) continue;
-  if (a === "--full") continue;
+  if (a === "--full" || a === "--experimental-deleted-worktrees") continue;
   const opt = (name: string): string | undefined => {
     if (a === `--${name}`) return rawArgs[++i];
     if (a.startsWith(`--${name}=`)) return a.slice(name.length + 3);
@@ -118,7 +119,7 @@ for (let i = 0; i < rawArgs.length; i++) {
 const USAGE =
   "Usage: cca-export <target-dir> [--full] [--source claude|opencode|cursor|copilot|auto]\n" +
   "                  [--claude-dir <path>] [--opencode-dir <path>] [--cursor-dir <path>]\n" +
-  "                  [--copilot-dir <path>]\n" +
+  "                  [--copilot-dir <path>] [--experimental-deleted-worktrees]\n" +
   "                  [--version]";
 
 if (sourceArg !== "auto" && !SOURCE_NAMES.includes(sourceArg as SourceName)) {
@@ -937,6 +938,13 @@ function buildAdapters(): BoundAdapter[] {
   const wanted: SourceName[] = sourceArg === "auto" ? SOURCE_NAMES : [sourceArg as SourceName];
   const roots = discoverProjectRoots(projectRoot);
   const extraRoots = roots.slice(1);
+  // Experimental, Copilot only for now: it is the one source that records the
+  // repository next to the directory, so a deleted worktree's sessions can
+  // still be tied back to this project.
+  const deletedWorktreesOf = deletedWorktrees ? originRepository(projectRoot) : undefined;
+  if (deletedWorktrees && !deletedWorktreesOf) {
+    console.error("Warning: --experimental-deleted-worktrees needs an `origin` remote; ignoring it.");
+  }
   const out: BoundAdapter[] = [];
   for (const name of wanted) {
     if (name === "claude") {
@@ -993,6 +1001,7 @@ function buildAdapters(): BoundAdapter[] {
               : new CopilotAdapter({
                   projectRoot,
                   extraRoots,
+                  ...(deletedWorktreesOf ? { deletedWorktreesOf } : {}),
                   ...(copilotDirArg ? { copilotDir: copilotDirArg } : {}),
                 }),
         primary: true,

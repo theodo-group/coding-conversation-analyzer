@@ -252,6 +252,9 @@ export interface CopilotAdapterOptions {
   // Other roots the same project's sessions may be keyed under (git worktrees,
   // Conductor workspaces).
   extraRoots?: string[];
+  // Experimental: also take sessions whose directory no longer exists (a
+  // deleted worktree) when `workspace.yaml`'s `repository` is this `owner/repo`.
+  deletedWorktreesOf?: string;
   // Overrides `~/.copilot` (mirrors `--claude-dir`).
   copilotDir?: string;
   // Overrides the models.dev catalog used to price models the checked-in one
@@ -297,7 +300,8 @@ export class CopilotAdapter implements SourceAdapter {
       // in, so the git root is matched first.
       const ws = readWorkspace(path.join(dir, "workspace.yaml"));
       const where = ws["git_root"] || ws["cwd"];
-      if (!where || !this.roots.has(realpath(where))) continue;
+      if (!where) continue;
+      if (!this.roots.has(realpath(where)) && !this.isDeletedWorktree(where, ws)) continue;
       refs.push({
         uuid: entry.name,
         // The session id is a UUID; the `cp` tag keeps its stem unambiguous
@@ -307,6 +311,15 @@ export class CopilotAdapter implements SourceAdapter {
       });
     }
     return refs;
+  }
+
+  // A session keyed under a directory that is gone, from the same repository.
+  // Only gone directories qualify: a live one is either a known root or a
+  // separate clone, which stays a separate project.
+  private isDeletedWorktree(where: string, ws: Record<string, string>): boolean {
+    const repo = this.opts.deletedWorktreesOf;
+    if (!repo || !ws["repository"]) return false;
+    return ws["repository"].toLowerCase() === repo && !fs.existsSync(where);
   }
 
   load(ref: SourceSessionRef): NeutralConversation {

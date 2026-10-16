@@ -64,3 +64,22 @@ export function discoverProjectRoots(primary: string): string[] {
 
   return roots;
 }
+
+// The `owner/repo` of the project's `origin` remote (GitHub-style URL, https or
+// ssh), lowercased, or undefined when there is none. Sources that record the
+// repository alongside the directory use it to recognise sessions whose
+// directory no longer exists — a deleted worktree leaves nothing on disk and
+// nothing in `git worktree list` to derive a root from.
+export function originRepository(primary: string): string | undefined {
+  try {
+    const url = execSync("git remote get-url origin", {
+      cwd: primary,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    const m = url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?\/?$/);
+    return m ? m[1]!.toLowerCase() : undefined;
+  } catch {
+    return undefined;
+  }
+}

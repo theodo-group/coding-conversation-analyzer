@@ -96,6 +96,12 @@ Everything lands flat in the same output tree and the same index as the main clo
 sessions, grouped by branch as usual — one project, one report, regardless of how many
 workspaces did the work.
 
+**Deleted worktrees (experimental, Copilot only).** A worktree removed with
+`git worktree remove`/`prune` leaves no directory and no registration to find it by.
+`--experimental-deleted-worktrees` also takes GitHub Copilot CLI sessions whose directory
+no longer exists but whose recorded `repository` matches this clone's `origin` remote.
+Other sources don't record the repository, so the flag doesn't affect them.
+
 ### Choosing a source
 
 By default (`--source auto`) every agent that has sessions for the current git root is
