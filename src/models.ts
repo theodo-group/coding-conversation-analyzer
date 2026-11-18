@@ -123,6 +123,13 @@ export const MODELS: ModelCatalog = {
     limit: { context: 200_000, output: 64_000 },
     cost: { input: 1, output: 5, cache_read: 0.1, cache_write: 1.25 },
   },
+  "claude-fable-5-2": {
+    id: "claude-fable-5-2",
+    name: "Claude Fable 5.2",
+    family: "claude-fable",
+    limit: { context: 1_000_000, output: 128_000 },
+    cost: { input: 8, output: 40, cache_read: 0.2, cache_write: 10 },
+  },
   "claude-fable-5-1": {
     id: "claude-fable-5-1",
     name: "Claude Fable 5.1",
@@ -182,8 +189,8 @@ export const DEFAULT_MODEL_ID = "claude-opus-5";
 // Ordered family fallback for ids the catalog has never seen — matched by
 // substring, most specific first.
 const FAMILY_FALLBACK: Array<{ match: string; id: string }> = [
-  { match: "fable", id: "claude-fable-5-1" },
-  { match: "mythos", id: "claude-fable-5-1" },
+  { match: "fable", id: "claude-fable-5-2" },
+  { match: "mythos", id: "claude-fable-5-2" },
   { match: "opus", id: "claude-opus-5" },
   { match: "sonnet", id: "claude-sonnet-5" },
   { match: "haiku", id: "claude-haiku-4-5" },
